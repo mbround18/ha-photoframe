@@ -1,0 +1,160 @@
+include "Keyboard.slint";
+
+export struct WifiNetwork {
+	ssid: string,
+}
+
+export component MainWindow inherits Window {
+	width: 800px;
+	height: 1280px;
+	title: "Photo Frame";
+
+	in property <string> headline-text: "Welcome";
+	in property <string> status-text: "Starting the photo frame";
+	in property <string> network-status: "Unprovisioned";
+	in property <string> detail-text: "Preparing the setup flow.";
+	in property <string> auth_user_code: "";
+	in property <string> auth_verification_uri: "";
+
+	callback connect-to-wifi();
+	callback network-selected(string);
+	callback password-submitted(string, string);
+
+	in-out property <[WifiNetwork]> wifi-networks: [];
+	in-out property show-wifi-list: false;
+	in-out property show-keyboard: false;
+	in-out property <string> selected_ssid: "";
+
+	Rectangle {
+		background: #0b1220;
+		border-radius: 0px;
+
+		VerticalLayout {
+			spacing: 20px;
+			padding: 56px;
+
+			Text {
+				text: root.headline-text;
+				font-size: 40px;
+				font-weight: 700;
+				color: #f8fafc;
+				horizontal-alignment: center;
+			}
+
+			Text {
+				text: root.status-text;
+				wrap: word-wrap;
+				font-size: 24px;
+				color: #dbe4f0;
+				horizontal-alignment: center;
+			}
+
+			Text {
+				text: "Network status: " + root.network-status;
+				wrap: word-wrap;
+				font-size: 20px;
+				color: #7dd3fc;
+				horizontal-alignment: center;
+			}
+
+			Text {
+				text: root.detail-text;
+				wrap: word-wrap;
+				font-size: 18px;
+				color: #94a3b8;
+				horizontal-alignment: center;
+			}
+
+			if root.network-status == "Authorizing" {
+				VerticalLayout {
+					spacing: 10px;
+					padding: 20px;
+					Text {
+						text: "Go to the following URL on another device:";
+						wrap: word-wrap;
+						font-size: 18px;
+						color: #94a3b8;
+						horizontal-alignment: center;
+					}
+					Text {
+						text: root.auth_verification_uri;
+						font-size: 20px;
+						color: #7dd3fc;
+						horizontal-alignment: center;
+					}
+					Text {
+						text: "And enter this code:";
+						wrap: word-wrap;
+						font-size: 18px;
+						color: #94a3b8;
+						horizontal-alignment: center;
+					}
+					Text {
+						text: root.auth_user_code;
+						font-size: 40px;
+						font-weight: 700;
+						color: #f8fafc;
+						horizontal-alignment: center;
+					}
+				}
+			}
+
+			if root.network-status == "Unprovisioned" {
+				button := TouchArea {
+					height: 50px;
+					width: 200px;
+					clicked => {
+						root.connect-to-wifi();
+						root.show-wifi-list = !root.show-wifi-list;
+					}
+					Rectangle {
+						background: button.pressed ? #1e293b : #334155;
+						border-radius: 10px;
+					}
+
+					Text {
+						text: "Connect to Wifi";
+						font-size: 20px;
+						color: #f8fafc;
+						horizontal-alignment: center;
+						vertical-alignment: center;
+					}
+				}
+			}
+		}
+
+		if show-wifi-list {
+			Rectangle {
+				background: rgba(0, 0, 0, 0.8);
+				width: 100%;
+				height: 100%;
+
+				ListView {
+					for network in root.wifi-networks : TouchArea {
+						clicked => {
+							root.network-selected(network.ssid);
+							root.selected_ssid = network.ssid;
+							root.show-wifi-list = false;
+							root.show-keyboard = true;
+						}
+						Text {
+							text: network.ssid;
+							font-size: 24px;
+							color: #dbe4f0;
+							padding: 10px;
+						}
+					}
+				}
+			}
+		}
+
+		if show-keyboard {
+			Keyboard {
+				submitted(password) => {
+					root.password-submitted(root.selected_ssid, password);
+					root.show-keyboard = false;
+				}
+			}
+		}
+	}
+}

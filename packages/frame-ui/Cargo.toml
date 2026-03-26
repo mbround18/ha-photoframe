@@ -1,0 +1,54 @@
+[package]
+name = "frame-ui"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+frame-core = { path = "../frame-core" }
+
+# `embedded-graphics` is a foundational crate for 2D graphics in embedded
+# Rust. It provides traits and primitives for drawing, which are used by
+# higher-level display drivers and UI libraries.
+embedded-graphics = "0.8.2"
+
+# `mipidsi` is a generic driver for displays using the MIPI Display Serial
+# Interface (DSI) standard. It's compatible with many common display
+# controllers (like ILI9341, ST7789) and will be used to send commands and
+# pixel data to our 10-inch screen.
+mipidsi = "0.10.0"
+
+# The `ft6x06` crate provides a driver for the popular FocalTech series of
+# capacitive touch screen controllers. It will read the touch coordinates
+# and gesture data from the screen.
+ft6x06 = "0.1.2"
+
+# The `image` crate is the de-facto standard for image processing in Rust.
+# We use it specifically for its JPEG decoding capability to process the
+# photos downloaded from Google Photos into a raw pixel format that can be
+# sent to the display.
+image = { version = "0.25.10", default-features = false, features = ["jpeg"] }
+
+# `anyhow` and `log` are used for error handling and logging within the UI
+# component, respectively.
+anyhow = "1.0.102"
+log = "0.4.29"
+
+[target.'cfg(not(target_os = "espidf"))'.dependencies]
+# Host validation uses Slint's software renderer with std support so UI
+# generation can be exercised without the device.
+slint = { version = "1.15.1", default-features = false, features = [
+  "compat-1-2",
+  "std",
+  "renderer-software",
+] }
+
+[target.'cfg(target_os = "espidf")'.dependencies]
+# Hardware access will be added back when the board-specific display/input layer
+# is implemented for the target device.
+
+[build-dependencies]
+# `slint-build` is the build-time component of Slint. It parses the `.slint`
+# UI definition files and generates the corresponding Rust code that is then
+# compiled into our `frame-ui` crate.
+slint-build = "1.15.1"

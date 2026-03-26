@@ -1,0 +1,38 @@
+[package]
+name = "frame-api"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+# `serde` and `serde_json` are essential for deserializing the JSON responses
+# from the Google Photos REST API into structured Rust types.
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+
+# The `oauth2` crate provides a robust and type-safe implementation of the
+# OAuth 2.0 protocol. We will use it to handle the Device Authorization Grant
+# flow required for authenticating with Google Photos on a headless device.
+oauth2 = { version = "5.0.0", default-features = false, features = ["reqwest"] }
+
+# `reqwest` is a higher-level HTTP client that we use with `oauth2` to
+# perform the token exchange.
+reqwest = { version = "0.12.5", default-features = false, features = ["blocking", "json"] }
+
+# `dotenvy` is used to load environment variables from a `.env` file, which
+# is where we'll store the Google Photos API client ID and secret.
+dotenvy = "0.15.7"
+
+# `anyhow` is used for convenient error handling when making API calls or
+# processing responses.
+anyhow = "1.0.102"
+
+# `log` allows for detailed logging of API requests, responses, and errors,
+# which is invaluable for debugging the integration with Google Photos.
+log = "0.4.29"
+
+# `url` helps in safely constructing and parsing URLs for API requests.
+url = "2.5.8"
+
+# Shared domain models stay host-testable in `frame-core`.
+frame-core = { path = "../frame-core" }

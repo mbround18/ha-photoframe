@@ -1,0 +1,71 @@
+export component Keyboard inherits Rectangle {
+    callback submitted(string);
+    in-out property <string> text: "";
+
+    background: #1e293b;
+    border-radius: 10px;
+    height: 400px;
+
+    VerticalLayout {
+        spacing: 10px;
+        padding: 20px;
+
+        Rectangle {
+            height: 50px;
+            background: #334155;
+            border-radius: 5px;
+
+            Text {
+                text: root.text;
+                color: white;
+                font-size: 24px;
+                vertical-alignment: center;
+                padding-left: 10px;
+            }
+        }
+
+        GridLayout {
+            spacing: 5px;
+
+            rows: [auto, auto, auto, auto];
+            columns: [1fr, 1fr, 1fr, 1fr, 1fr, 1fr, 1fr, 1fr, 1fr, 1fr];
+
+            key_codes := [
+                ["q", "w", "e", "r", "t", "y", "u", "i", "o", "p"],
+                ["a", "s", "d", "f", "g", "h", "j", "k", "l"],
+                ["z", "x", "c", "v", "b", "n", "m"],
+                ["", "space", "del", "submit"]
+            ];
+            
+            for row[i] in key_codes : Row {
+                for key_code[j] in row : TouchArea {
+                    height: 50px;
+                    clicked => {
+                        if (key_code == "del") {
+                            root.text = root.text.slice(0, root.text.length - 1);
+                        } else if (key_code == "space") {
+                            root.text += " ";
+                        } else if (key_code == "submit") {
+                            root.submitted(root.text);
+                        } else {
+                            root.text += key_code;
+                        }
+                    }
+
+                    Rectangle {
+                        background: self.pressed ? #475569 : #64748b;
+                        border-radius: 5px;
+                    }
+
+                    Text {
+                        text: key_code;
+                        color: white;
+                        font-size: 20px;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+    }
+}

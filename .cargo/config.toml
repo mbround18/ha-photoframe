@@ -1,0 +1,40 @@
+# This file keeps shared ESP-IDF environment settings at the workspace root
+# without forcing every Cargo command through the embedded target.
+
+[target.riscv32imafc-esp-espidf]
+# Use the standard ESP-IDF linker wrapper so Cargo links against the generated
+# ESP-IDF runtime and libraries instead of invoking the raw GCC driver directly.
+linker = "ldproxy"
+rustflags = ["--cfg", "espidf_time64"]
+
+[alias]
+# Firmware commands keep the embedded workflow easy while leaving host checks
+# available for library crates and generated UI validation.
+firmware-check = "check --manifest-path packages/frame-firmware/Cargo.toml --target riscv32imafc-esp-espidf -Zbuild-std=std,panic_abort"
+firmware-build = "build --manifest-path packages/frame-firmware/Cargo.toml --release --target riscv32imafc-esp-espidf -Zbuild-std=std,panic_abort"
+
+[env]
+# Sets the specific MCU model. This is used by `esp-idf-sys` to configure
+# the build for the ESP32-P4's memory layout and peripherals.
+MCU = "esp32p4"
+
+# ESP32-P4 rev 1.3 needs a newer ESP-IDF than the locally cached 5.2.x branch,
+# whose generated image headers only support revisions below 1.0.
+ESP_IDF_VERSION = "v5.5.3"
+
+# Configures where the ESP-IDF build tools should be installed. Setting it to
+# "global" is a convenient default that places the tools in a shared location
+# managed by `embuild`.
+ESP_IDF_TOOLS_INSTALL_DIR = "global"
+
+# Point `esp-idf-sys` at the workspace defaults file explicitly so firmware
+# builds consistently pick up the board revision, panel, and flash size.
+ESP_IDF_SDKCONFIG_DEFAULTS = { value = "sdkconfig.defaults", relative = true }
+
+# This environment variable is used by Slint to hook into the ESP-IDF build
+# system. It ensures that Slint's build script can find the necessary C/C++
+# compilers and link against the correct ESP-IDF components.
+SLINT_ESP_IDF_COMPILER_TARGET = "riscv32imafc-esp-espidf"
+
+# `esp-idf-sys` needs an explicit root crate when invoked from the workspace.
+ESP_IDF_SYS_ROOT_CRATE = "frame-firmware"

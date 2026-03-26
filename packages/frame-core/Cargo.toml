@@ -1,0 +1,17 @@
+[package]
+name = "frame-core"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+# `serde` is used for serializing and deserializing the shared data models
+# that will be passed between the other crates. For example, the Google
+# Photos album or photo metadata. The "derive" feature enables procedural
+# macros for easily implementing `Serialize` and `Deserialize`.
+serde = { version = "1.0.228", features = ["derive"] }
+
+# `log` provides a lightweight and flexible logging facade. It allows `frame-core`
+# to emit log messages that can be captured and handled by the main firmware
+# crate, which will initialize the actual logger implementation.
+log = "0.4.29"

@@ -1,0 +1,38 @@
+[package]
+name = "frame-firmware"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+frame-api = { path = "../frame-api" }
+frame-core = { path = "../frame-core" }
+frame-net = { path = "../frame-net" }
+frame-ui = { path = "../frame-ui" }
+
+# `anyhow` and `log` serve as the top-level error handling and logging
+# frameworks for the entire application.
+anyhow = "1.0.102"
+log = "0.4.29"
+tracing = { version = "0.1.41", features = ["attributes"] }
+tracing-log = "0.2.0"
+tracing-subscriber = { version = "0.3.20", default-features = false, features = [
+  "fmt",
+  "std",
+  "ansi",
+] }
+
+[target.'cfg(target_os = "espidf")'.dependencies]
+# `esp-idf-sys` provides the low-level FFI (Foreign Function Interface)
+# bindings to the underlying ESP-IDF C libraries. The "binstart" feature
+# is critical as it includes the necessary boilerplate to properly initialize
+# the Rust runtime environment on the ESP32.
+esp-idf-sys = { version = "0.37.2", features = ["binstart"] }
+esp-idf-hal = "0.43.1"
+esp-idf-svc = { version = "0.48.1", default-features = false }
+
+[build-dependencies]
+embuild = { version = "0.33.1", features = ["espidf"] }
+
+[[package.metadata.esp-idf-sys.extra_components]]
+component_dirs = ["components", "../../tmp/common_components"]

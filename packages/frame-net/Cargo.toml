@@ -1,0 +1,29 @@
+[package]
+name = "frame-net"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+frame-core = { path = "../frame-core" }
+
+# `anyhow` provides a flexible and easy-to-use error handling library. It's
+# particularly useful for applications to simplify error propagation with
+# minimal boilerplate.
+anyhow = "1.0.102"
+
+# `log` provides a standard logging facade. `frame-net` will use it to log
+# networking events, such as WiFi connection status or BLE provisioning steps.
+log = "0.4.29"
+
+# `once_cell` provides a thread-safe cell for single initialization, useful
+# for creating global singletons like the WiFi manager.
+once_cell = "1.19.0"
+
+# `gettext-rs` provides internationalization support. We use it to provide
+# translated strings in the UI.
+gettext-rs = { version = "0.7", features = ["gettext-system"] }
+
+
+[target.'cfg(target_os = "espidf")'.dependencies]
+esp-idf-svc = { version = "0.48.1", default-features = false }
