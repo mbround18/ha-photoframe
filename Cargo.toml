@@ -1,5 +1,5 @@
 [workspace]
-members = ["./packages/*"]
+members = ["./packages/*", "packages/frame-captive-portal"]
 resolver = "3"
 
 [profile.release]
@@ -8,3 +8,6 @@ opt-level = "s"
 [profile.dev]
 debug = true
 opt-level = "z"
+
+[patch.crates-io]
+i-slint-core = { path = "vendor/i-slint-core" }

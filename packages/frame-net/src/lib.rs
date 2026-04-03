@@ -5,4 +5,5 @@ pub mod ble;
 pub mod provisioning;
 pub mod wifi;
 
-pub use provisioning::{ProvisioningManager, create_provisioning_manager};
+pub use provisioning::{create_provisioning_manager, ProvisioningManager};
+pub use wifi::WifiAp;

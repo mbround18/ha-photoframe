@@ -1,11 +1,24 @@
 use anyhow::{anyhow, Context, Result};
-use oauth2::{
-    basic::BasicClient, device::DeviceAuthorizationRequest, reqwest::http_client, AuthUrl, ClientId,
-    ClientSecret, DeviceAuthorizationUrl, Scope, TokenUrl,
-};
+use frame_core::models::GoogleUser;
 use serde::Deserialize;
 use std::time::{Duration, Instant};
 use url::Url;
+
+#[cfg(target_os = "espidf")]
+use url::form_urlencoded;
+
+#[cfg(target_os = "espidf")]
+use embedded_svc::{
+    http::{Method, client::Client as HttpClient},
+    io::Write as _,
+};
+#[cfg(target_os = "espidf")]
+use esp_idf_svc::http::client::{Configuration as HttpConfiguration, EspHttpConnection};
+#[cfg(not(target_os = "espidf"))]
+use oauth2::{
+    AuthUrl, ClientId, ClientSecret, DeviceAuthorizationUrl, Scope,
+    StandardDeviceAuthorizationResponse, TokenUrl, basic::BasicClient, reqwest,
+};
 
 // The `DeviceAuthorizationResponse` contains the URLs and codes needed to prompt
 // the user to authorize the app. We'll show the `user_code` and `verification_uri`
@@ -14,6 +27,7 @@ use url::Url;
 pub struct DeviceAuthorizationResponse {
     pub device_code: String,
     pub user_code: String,
+    #[serde(alias = "verification_url")]
     pub verification_uri: Url,
     pub expires_in: u64,
     #[serde(default = "default_interval")]
@@ -28,48 +42,276 @@ pub struct DeviceAccessToken {
     pub expires_in: u64,
 }
 
+#[cfg(target_os = "espidf")]
+#[derive(Debug, Deserialize)]
+struct OAuthErrorResponse {
+    error: Option<String>,
+    error_description: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct UserInfoResponse {
+    email: String,
+    sub: String,
+}
+
 fn default_interval() -> u64 {
     5
 }
 
-// The `create_oauth_client` function will create a new `BasicClient` from the
-// environment variables.
-fn create_oauth_client() -> Result<BasicClient> {
+fn embedded_or_runtime_env(key: &str, baked: Option<&'static str>) -> Option<String> {
+    std::env::var(key)
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| {
+            baked
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned)
+        })
+}
+
+fn oauth_client_credentials() -> Result<(String, String)> {
+    #[cfg(not(target_os = "espidf"))]
     dotenvy::dotenv().ok();
 
-    let client_id =
-        std::env::var("GOOGLE_OAUTH_CLIENT_ID").context("GOOGLE_OAUTH_CLIENT_ID is not set")?;
-    let client_secret =
-        std::env::var("GOOGLE_OAUTH_CLIENT_SECRET").context("GOOGLE_OAUTH_CLIENT_SECRET is not set")?;
+    let client_id = embedded_or_runtime_env(
+        "GOOGLE_OAUTH_CLIENT_ID",
+        option_env!("GOOGLE_OAUTH_CLIENT_ID"),
+    )
+    .context("GOOGLE_OAUTH_CLIENT_ID is not set")?;
+    let client_secret = embedded_or_runtime_env(
+        "GOOGLE_OAUTH_CLIENT_SECRET",
+        option_env!("GOOGLE_OAUTH_CLIENT_SECRET"),
+    )
+    .context("GOOGLE_OAUTH_CLIENT_SECRET is not set")?;
+
+    Ok((client_id, client_secret))
+}
+
+fn device_authorization_scopes() -> Vec<String> {
+    // Google's limited-input device flow only supports a restricted scope set.
+    // Google Photos library scopes are rejected here and must be requested from
+    // a browser-capable local setup flow instead.
+    vec![
+        "openid".to_string(),
+        "email".to_string(),
+        "profile".to_string(),
+    ]
+}
+
+#[cfg(target_os = "espidf")]
+fn form_body(pairs: &[(&str, &str)]) -> String {
+    let mut serializer = form_urlencoded::Serializer::new(String::new());
+    for (key, value) in pairs {
+        serializer.append_pair(key, value);
+    }
+    serializer.finish()
+}
+
+#[cfg(not(target_os = "espidf"))]
+fn build_oauth_http_client() -> Result<reqwest::blocking::Client> {
+    reqwest::blocking::ClientBuilder::new()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .context("failed to build OAuth HTTP client")
+}
+
+#[cfg(target_os = "espidf")]
+fn oauth_request(url: &str, body: &str) -> Result<(u16, String)> {
+    oauth_request_with_method(Method::Post, url, Some(body), &[])
+}
+
+#[cfg(target_os = "espidf")]
+fn oauth_request_with_method(
+    method: Method,
+    url: &str,
+    body: Option<&str>,
+    extra_headers: &[(&str, &str)],
+) -> Result<(u16, String)> {
+    let http_config = HttpConfiguration {
+        crt_bundle_attach: Some(esp_idf_svc::sys::esp_crt_bundle_attach),
+        ..Default::default()
+    };
+    let connection =
+        EspHttpConnection::new(&http_config).context("failed to build OAuth HTTP client")?;
+    let mut client = HttpClient::wrap(connection);
+
+    let content_length = body.map(str::len).unwrap_or(0).to_string();
+    let mut headers = vec![("accept", "application/json")];
+
+    if body.is_some() {
+        headers.push(("content-type", "application/x-www-form-urlencoded"));
+        headers.push(("content-length", content_length.as_str()));
+    }
+
+    headers.extend_from_slice(extra_headers);
+
+    let mut request = client
+        .request(method, url, &headers)
+        .with_context(|| format!("failed to open OAuth request to {url}"))?;
+
+    if let Some(body) = body {
+        request
+            .write_all(body.as_bytes())
+            .with_context(|| format!("failed to write OAuth request body to {url}"))?;
+        request
+            .flush()
+            .with_context(|| format!("failed to flush OAuth request body to {url}"))?;
+    }
+
+    let mut response = request
+        .submit()
+        .with_context(|| format!("failed to send OAuth request to {url}"))?;
+    let status = response.status();
+    let mut bytes = Vec::new();
+    let mut chunk = [0_u8; 1024];
+
+    loop {
+        let read = response
+            .read(&mut chunk)
+            .with_context(|| format!("failed to read OAuth response from {url}"))?;
+        if read == 0 {
+            break;
+        }
+        bytes.extend_from_slice(&chunk[..read]);
+    }
+
+    let body = String::from_utf8(bytes).context("OAuth response payload was not valid UTF-8")?;
+    Ok((status, body))
+}
+
+#[cfg(not(target_os = "espidf"))]
+pub fn fetch_account_profile(access_token: &str) -> Result<GoogleUser> {
+    let http_client = build_oauth_http_client()?;
+    let response = http_client
+        .get("https://openidconnect.googleapis.com/v1/userinfo")
+        .bearer_auth(access_token)
+        .send()
+        .context("failed to fetch account profile from Google userinfo")?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().unwrap_or_default();
+        return Err(anyhow!(
+            "failed to fetch account profile, status {status}: {body}"
+        ));
+    }
+
+    let payload = response
+        .json::<UserInfoResponse>()
+        .context("invalid account profile payload")?;
+
+    Ok(GoogleUser {
+        email: payload.email,
+        subject: payload.sub,
+        refresh_token: "".to_string(),
+    })
+}
+
+#[cfg(target_os = "espidf")]
+pub fn fetch_account_profile(access_token: &str) -> Result<GoogleUser> {
+    let authorization = format!("Bearer {access_token}");
+    let (status, response_body) = oauth_request_with_method(
+        Method::Get,
+        "https://openidconnect.googleapis.com/v1/userinfo",
+        None,
+        &[("authorization", authorization.as_str())],
+    )
+    .context("failed to fetch account profile from Google userinfo")?;
+
+    if !(200..300).contains(&status) {
+        return Err(anyhow!(
+            "failed to fetch account profile, status {status}: {response_body}"
+        ));
+    }
+
+    let payload = serde_json::from_str::<UserInfoResponse>(&response_body)
+        .context("invalid account profile payload")?;
+
+    Ok(GoogleUser {
+        email: payload.email,
+        subject: payload.sub,
+        refresh_token: "".to_string(),
+    })
+}
+
+#[cfg(not(target_os = "espidf"))]
+pub fn refresh_device_access_token(refresh_token: &str) -> Result<DeviceAccessToken> {
+    let (client_id, client_secret) = oauth_client_credentials()?;
+    let http_client = build_oauth_http_client()?;
+    let response = http_client
+        .post("https://oauth2.googleapis.com/token")
+        .form(&[
+            ("grant_type", "refresh_token"),
+            ("refresh_token", refresh_token),
+            ("client_id", client_id.as_str()),
+            ("client_secret", client_secret.as_str()),
+        ])
+        .send()
+        .context("failed to refresh OAuth device token")?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().unwrap_or_default();
+        return Err(anyhow!(
+            "failed to refresh OAuth device token, status {status}: {body}"
+        ));
+    }
+
+    response
+        .json::<DeviceAccessToken>()
+        .context("invalid OAuth refresh token payload")
+}
+
+#[cfg(target_os = "espidf")]
+pub fn refresh_device_access_token(refresh_token: &str) -> Result<DeviceAccessToken> {
+    let (client_id, client_secret) = oauth_client_credentials()?;
+    let body = form_body(&[
+        ("grant_type", "refresh_token"),
+        ("refresh_token", refresh_token),
+        ("client_id", client_id.as_str()),
+        ("client_secret", client_secret.as_str()),
+    ]);
+    let (status, response_body) = oauth_request("https://oauth2.googleapis.com/token", &body)
+        .context("failed to refresh OAuth device token")?;
+
+    if !(200..300).contains(&status) {
+        return Err(anyhow!(
+            "failed to refresh OAuth device token, status {status}: {response_body}"
+        ));
+    }
+
+    serde_json::from_str(&response_body).context("invalid OAuth refresh token payload")
+}
+
+// `request_device_authorization` will make a request to the device authorization
+// endpoint and return the `DeviceAuthorizationResponse`.
+#[cfg(not(target_os = "espidf"))]
+pub fn request_device_authorization() -> Result<DeviceAuthorizationResponse> {
+    let (client_id, client_secret) = oauth_client_credentials()?;
     let auth_url = AuthUrl::new("https://accounts.google.com/o/oauth2/v2/auth".to_string())?;
     let token_url = TokenUrl::new("https://oauth2.googleapis.com/token".to_string())?;
     let device_auth_url =
         DeviceAuthorizationUrl::new("https://oauth2.googleapis.com/device/code".to_string())?;
 
-    let client = BasicClient::new(
-        ClientId::new(client_id),
-        Some(ClientSecret::new(client_secret)),
-        auth_url,
-        Some(token_url),
-    )
-    .set_device_authorization_url(device_auth_url);
+    let client = BasicClient::new(ClientId::new(client_id))
+        .set_client_secret(ClientSecret::new(client_secret))
+        .set_auth_uri(auth_url)
+        .set_token_uri(token_url)
+        .set_device_authorization_url(device_auth_url);
 
-    Ok(client)
-}
+    let scopes = device_authorization_scopes()
+        .into_iter()
+        .map(Scope::new)
+        .collect::<Vec<_>>();
 
-// `request_device_authorization` will make a request to the device authorization
-// endpoint and return the `DeviceAuthorizationResponse`.
-pub fn request_device_authorization() -> Result<DeviceAuthorizationResponse> {
-    let client = create_oauth_client()?;
-    let scopes = vec![
-        Scope::new("https://www.googleapis.com/auth/photoslibrary.readonly".to_string()),
-        Scope::new("https://www.googleapis.com/auth/userinfo.profile".to_string()),
-    ];
+    let http_client = build_oauth_http_client()?;
 
-    let details = client
-        .exchange_device_code()?
+    let details: StandardDeviceAuthorizationResponse = client
+        .exchange_device_code()
         .add_scopes(scopes)
-        .request(http_client)?;
+        .request(&http_client)?;
 
     Ok(DeviceAuthorizationResponse {
         device_code: details.device_code().secret().clone(),
@@ -80,12 +322,32 @@ pub fn request_device_authorization() -> Result<DeviceAuthorizationResponse> {
     })
 }
 
+#[cfg(target_os = "espidf")]
+pub fn request_device_authorization() -> Result<DeviceAuthorizationResponse> {
+    let (client_id, _) = oauth_client_credentials()?;
+    let scope = device_authorization_scopes().join(" ");
+    let body = form_body(&[("client_id", client_id.as_str()), ("scope", scope.as_str())]);
+    let (status, response_body) =
+        oauth_request("https://oauth2.googleapis.com/device/code", &body)?;
+
+    if !(200..300).contains(&status) {
+        return Err(anyhow!(
+            "OAuth device authorization request failed with status {status}: {response_body}"
+        ));
+    }
+
+    serde_json::from_str(&response_body).context("invalid OAuth device authorization payload")
+}
+
 // `poll_for_device_authorization` will poll the token endpoint until the user
 // has authorized the app.
+#[cfg(not(target_os = "espidf"))]
 pub fn poll_for_device_authorization(
     auth_response: &DeviceAuthorizationResponse,
 ) -> Result<DeviceAccessToken> {
-    let client = create_oauth_client()?;
+    let (client_id, client_secret) = oauth_client_credentials()?;
+    let http_client = build_oauth_http_client()?;
+
     let expires_at = Instant::now() + Duration::from_secs(auth_response.expires_in);
 
     loop {
@@ -93,29 +355,89 @@ pub fn poll_for_device_authorization(
             return Err(anyhow!("authorization expired"));
         }
 
-        let token_result = client
-            .exchange_device_access_token(
-                &oauth2::device::DeviceCode::new(auth_response.device_code.clone()),
-            )
-            .request(http_client);
+        let response = http_client
+            .post("https://oauth2.googleapis.com/token")
+            .form(&[
+                ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
+                ("device_code", auth_response.device_code.as_str()),
+                ("client_id", client_id.as_str()),
+                ("client_secret", client_secret.as_str()),
+            ])
+            .send()
+            .context("failed to poll OAuth device token endpoint")?;
 
-        match token_result {
-            Ok(token) => {
-                return Ok(DeviceAccessToken {
-                    access_token: token.access_token().secret().clone(),
-                    refresh_token: token.refresh_token().map(|t| t.secret().clone()),
-                    expires_in: token.expires_in().unwrap_or_default().as_secs(),
-                });
-            }
-            Err(e) => {
-                if let Some(source) = e.source() {
-                    if source.to_string().contains("authorization_pending") {
-                        std::thread::sleep(Duration::from_secs(auth_response.interval));
-                        continue;
-                    }
-                }
-                return Err(anyhow!("failed to exchange device code: {}", e));
-            }
+        if response.status().is_success() {
+            let token = response
+                .json::<DeviceAccessToken>()
+                .context("invalid OAuth token response payload")?;
+            return Ok(token);
         }
+
+        let error_body = response.text().unwrap_or_default();
+        if error_body.contains("authorization_pending") {
+            std::thread::sleep(Duration::from_secs(auth_response.interval));
+            continue;
+        }
+
+        if error_body.contains("slow_down") {
+            std::thread::sleep(Duration::from_secs(auth_response.interval + 5));
+            continue;
+        }
+
+        return Err(anyhow!(
+            "failed to exchange device code, response: {error_body}"
+        ));
+    }
+}
+
+#[cfg(target_os = "espidf")]
+pub fn poll_for_device_authorization(
+    auth_response: &DeviceAuthorizationResponse,
+) -> Result<DeviceAccessToken> {
+    let (client_id, client_secret) = oauth_client_credentials()?;
+    let expires_at = Instant::now() + Duration::from_secs(auth_response.expires_in);
+
+    loop {
+        if Instant::now() > expires_at {
+            return Err(anyhow!("authorization expired"));
+        }
+
+        let body = form_body(&[
+            ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
+            ("device_code", auth_response.device_code.as_str()),
+            ("client_id", client_id.as_str()),
+            ("client_secret", client_secret.as_str()),
+        ]);
+        let (status, response_body) = oauth_request("https://oauth2.googleapis.com/token", &body)
+            .context("failed to poll OAuth device token endpoint")?;
+
+        if (200..300).contains(&status) {
+            return serde_json::from_str(&response_body)
+                .context("invalid OAuth token response payload");
+        }
+
+        let oauth_error = serde_json::from_str::<OAuthErrorResponse>(&response_body).ok();
+        let error_code = oauth_error
+            .as_ref()
+            .and_then(|payload| payload.error.as_deref())
+            .unwrap_or_default();
+
+        if error_code == "authorization_pending" {
+            std::thread::sleep(Duration::from_secs(auth_response.interval));
+            continue;
+        }
+
+        if error_code == "slow_down" {
+            std::thread::sleep(Duration::from_secs(auth_response.interval + 5));
+            continue;
+        }
+
+        let description = oauth_error
+            .and_then(|payload| payload.error_description)
+            .unwrap_or(response_body);
+
+        return Err(anyhow!(
+            "failed to exchange device code, status {status}: {description}"
+        ));
     }
 }

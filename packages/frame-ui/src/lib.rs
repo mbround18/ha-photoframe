@@ -5,7 +5,7 @@ pub mod adapter;
 pub mod display;
 pub mod input;
 
-#[cfg(not(target_os = "espidf"))]
 slint::include_modules!();
 
-pub use adapter::{UiAdapter, create_ui};
+pub use adapter::sync_window_state;
+pub use adapter::{UiAdapter, UiStateSnapshot, create_ui, ui_state_snapshot};

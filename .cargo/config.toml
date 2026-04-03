@@ -5,7 +5,7 @@
 # Use the standard ESP-IDF linker wrapper so Cargo links against the generated
 # ESP-IDF runtime and libraries instead of invoking the raw GCC driver directly.
 linker = "ldproxy"
-rustflags = ["--cfg", "espidf_time64"]
+rustflags = ["--cfg", "espidf_time64", "-C", "target-feature=+f"]
 
 [alias]
 # Firmware commands keep the embedded workflow easy while leaving host checks

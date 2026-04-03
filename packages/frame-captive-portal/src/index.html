@@ -1,0 +1,967 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Photo Frame Setup</title>
+    <style>
+        :root {
+            color-scheme: dark;
+            --bg: #09111d;
+            --panel: #0d1728;
+            --panel-strong: #10253a;
+            --panel-soft: #10192a;
+            --border: #27415d;
+            --tile-border: #243247;
+            --text: #f8fafc;
+            --muted: #b8c6d8;
+            --subtle: #9fb2c7;
+            --accent: #7dd3fc;
+            --accent-soft: #14304a;
+            --accent-soft-2: #0f3b38;
+            --focus-ring: rgba(125, 211, 252, 0.22);
+            --danger: #fca5a5;
+            --shadow: 0 24px 60px rgba(0, 0, 0, 0.32);
+            --transition: 180ms ease;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            padding: 18px;
+            font-family: "Avenir Next", "Segoe UI Variable", "Segoe UI", sans-serif;
+            color: var(--text);
+            background:
+                radial-gradient(circle at top left, rgba(20, 48, 74, 0.95) 0, rgba(20, 48, 74, 0) 28%),
+                radial-gradient(circle at bottom right, rgba(15, 59, 56, 0.9) 0, rgba(15, 59, 56, 0) 24%),
+                var(--bg);
+        }
+
+        .shell {
+            width: min(100%, 1080px);
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: 320px minmax(0, 1fr);
+            gap: 22px;
+        }
+
+        .panel,
+        .hero,
+        .tile {
+            border: 1px solid var(--border);
+            border-radius: 28px;
+            background: var(--panel);
+            box-shadow: var(--shadow);
+        }
+
+        .panel {
+            padding: 24px;
+        }
+
+        .eyebrow {
+            margin: 0;
+            color: #dbeafe;
+            font-size: 0.85rem;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+        }
+
+        .sidebar-title {
+            margin: 10px 0 8px;
+            font-size: 2rem;
+            line-height: 1.05;
+        }
+
+        .sidebar-copy {
+            margin: 0 0 18px;
+            color: var(--subtle);
+            line-height: 1.6;
+        }
+
+        .step {
+            padding: 16px 18px;
+            border-radius: 22px;
+            border: 1px solid var(--tile-border);
+            background: var(--panel-soft);
+            margin-bottom: 12px;
+        }
+
+        .step strong {
+            display: block;
+            margin-bottom: 4px;
+            font-size: 1rem;
+        }
+
+        .step span {
+            color: var(--subtle);
+            line-height: 1.5;
+            font-size: 0.92rem;
+        }
+
+        .step.active {
+            border-color: var(--accent);
+            background: var(--accent-soft);
+        }
+
+        .hero {
+            padding: 28px;
+            background: linear-gradient(180deg, var(--panel-strong), var(--panel));
+        }
+
+        .badge {
+            display: inline-flex;
+            padding: 8px 14px;
+            border-radius: 999px;
+            background: var(--accent-soft);
+            color: #dbeafe;
+            font-size: 0.82rem;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+        }
+
+        .hero h1 {
+            margin: 16px 0 10px;
+            font-size: clamp(2.1rem, 7vw, 3.8rem);
+            line-height: 0.98;
+        }
+
+        .hero p {
+            margin: 0;
+            max-width: 46rem;
+            color: var(--muted);
+            line-height: 1.65;
+            font-size: 1.02rem;
+        }
+
+        .layout {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 18px;
+            margin-top: 18px;
+        }
+
+        .tile {
+            padding: 22px;
+            background: rgba(13, 23, 40, 0.94);
+        }
+
+        .tile h2 {
+            margin: 0 0 10px;
+            color: var(--accent);
+            font-size: 0.88rem;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+        }
+
+        .tile p,
+        .tile label,
+        .tile .meta {
+            color: var(--muted);
+            line-height: 1.6;
+        }
+
+        .value {
+            margin: 0 0 10px;
+            color: var(--text);
+            font-size: 1.65rem;
+            font-weight: 700;
+            line-height: 1.15;
+        }
+
+        .status-message {
+            min-height: 1.3rem;
+            margin: 0;
+            color: var(--subtle);
+            font-size: 0.92rem;
+        }
+
+        .status-message.error {
+            color: var(--danger);
+        }
+
+        .field {
+            display: grid;
+            gap: 10px;
+            margin-bottom: 18px;
+        }
+
+        .input-wrapper {
+            position: relative;
+        }
+
+        .input-wrapper svg.leading {
+            position: absolute;
+            left: 14px;
+            top: 50%;
+            width: 20px;
+            height: 20px;
+            transform: translateY(-50%);
+            color: var(--subtle);
+            pointer-events: none;
+        }
+
+        input,
+        select {
+            width: 100%;
+            padding: 14px 16px 14px 44px;
+            border-radius: 16px;
+            border: 1px solid #334155;
+            background: #020617;
+            color: var(--text);
+            font-size: 1rem;
+            transition: border-color var(--transition), box-shadow var(--transition), transform var(--transition);
+        }
+
+        select {
+            appearance: none;
+            background-image: linear-gradient(45deg, transparent 50%, #94a3b8 50%), linear-gradient(135deg, #94a3b8 50%, transparent 50%);
+            background-position: calc(100% - 22px) calc(50% - 3px), calc(100% - 16px) calc(50% - 3px);
+            background-size: 6px 6px, 6px 6px;
+            background-repeat: no-repeat;
+        }
+
+        input:focus,
+        select:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 4px var(--focus-ring);
+        }
+
+        .action-button {
+            position: absolute;
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 40px;
+            height: 40px;
+            border: 0;
+            border-radius: 12px;
+            background: transparent;
+            color: var(--subtle);
+            cursor: pointer;
+            transition: background-color var(--transition), color var(--transition);
+        }
+
+        .action-button:hover {
+            background: rgba(125, 211, 252, 0.08);
+            color: var(--text);
+        }
+
+        .action-button svg {
+            width: 20px;
+            height: 20px;
+        }
+
+        .action-row {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            margin-top: 12px;
+        }
+
+        button[type="submit"] {
+            width: 100%;
+            padding: 15px 18px;
+            border: 0;
+            border-radius: 16px;
+            background: var(--accent);
+            color: #0b1220;
+            font-size: 1rem;
+            font-weight: 800;
+            cursor: pointer;
+            transition: transform var(--transition), opacity var(--transition), background-color var(--transition);
+        }
+
+        button[type="submit"]:hover:not(:disabled) {
+            transform: translateY(-1px);
+        }
+
+        button[type="submit"]:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .hint-list {
+            margin: 0;
+            padding-left: 18px;
+            color: var(--subtle);
+            line-height: 1.6;
+        }
+
+        code {
+            font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
+            padding: 3px 7px;
+            border-radius: 8px;
+            background: #020617;
+            color: #e2e8f0;
+        }
+
+        .scanning .badge {
+            animation: pulse 1.6s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%,
+            100% {
+                transform: scale(1);
+                opacity: 1;
+            }
+
+            50% {
+                transform: scale(0.98);
+                opacity: 0.82;
+            }
+        }
+
+        @media (max-width: 860px) {
+            .shell {
+                grid-template-columns: 1fr;
+            }
+
+            .layout {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="shell">
+        <aside class="panel">
+            <p class="eyebrow">Photo Frame</p>
+            <h2 class="sidebar-title">Connect Wi-Fi</h2>
+            <p class="sidebar-copy">This is the same guided setup flow shown on the frame. Choose your home network, then the frame will move into sign-in automatically.</p>
+
+            <div class="step active">
+                <strong>1. Join home Wi-Fi</strong>
+                <span>Choose your network below or type the name manually if it is hidden.</span>
+            </div>
+            <div class="step">
+                <strong>2. Wait for reconnect</strong>
+                <span>The frame will leave its temporary network and join your home internet.</span>
+            </div>
+            <div class="step">
+                <strong>3. Approve Google sign-in</strong>
+                <span>Finish sign-in from your phone or laptop using the code shown on the frame.</span>
+            </div>
+
+            <div class="tile" style="margin-top:18px;">
+                <h2>Need a fallback?</h2>
+                <p class="meta">If this page did not open automatically, browse to <code>192.168.71.1</code> while connected to the frame's setup Wi-Fi.</p>
+            </div>
+        </aside>
+
+        <main>
+            <section class="hero" id="app-container">
+                <div class="badge">Setup Wi-Fi</div>
+                <h1>Bring your frame online</h1>
+                <p>Choose the Wi-Fi network your frame should use every day. Once connected, setup will continue on this device or on the frame itself.</p>
+            </section>
+
+            <div class="layout">
+                <section class="tile">
+                    <h2>Choose network</h2>
+                    <form action="/connect" method="post" id="setup-form">
+                        <div class="field">
+                            <label for="ssid">Wi-Fi network</label>
+                            <div class="input-wrapper">
+                                <svg class="leading" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+                                </svg>
+                                <select id="ssid" name="ssid">
+                                    <option value="">Scanning networks...</option>
+                                </select>
+                                <button type="button" class="action-button" id="refresh-btn" title="Scan again">
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                    </svg>
+                                </button>
+                            </div>
+                            <p class="status-message" id="scan-status">Tap scan to search nearby networks, or type your Wi-Fi name manually below.</p>
+                        </div>
+
+                        <div class="field">
+                            <label for="manual-ssid">Network name</label>
+                            <div class="input-wrapper">
+                                <svg class="leading" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5h18M3 12h18M3 19h18" />
+                                </svg>
+                                <input type="text" id="manual-ssid" name="manual_ssid" placeholder="Type your Wi-Fi name if scan is empty">
+                            </div>
+                            <p class="status-message">Use this if scan is unavailable or your network is hidden.</p>
+                        </div>
+
+                        <div class="field">
+                            <label for="password">Password</label>
+                            <div class="input-wrapper">
+                                <svg class="leading" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                                </svg>
+                                <input type="password" id="password" name="password" placeholder="Leave blank if the network is open">
+                                <button type="button" class="action-button" id="toggle-password" title="Toggle password visibility">
+                                    <svg id="eye-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="action-row">
+                            <button type="submit" id="submit-btn" disabled>Connect the frame</button>
+                        </div>
+                    </form>
+                </section>
+
+                <section class="tile">
+                    <h2>What happens next</h2>
+                    <p class="value">The frame switches networks</p>
+                    <p class="meta">After you submit, the frame will leave its temporary setup Wi-Fi and try your home network. Your phone or laptop may need to reconnect to its normal network for the next step.</p>
+                    <ul class="hint-list">
+                        <li>Keep this page open until the frame moves forward.</li>
+                        <li>If scanning fails, manual network entry still works.</li>
+                        <li>Google sign-in happens after Wi-Fi is connected.</li>
+                    </ul>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        const select = document.getElementById('ssid');
+        const submitBtn = document.getElementById('submit-btn');
+        const appContainer = document.getElementById('app-container');
+        const refreshBtn = document.getElementById('refresh-btn');
+        const manualSsidInput = document.getElementById('manual-ssid');
+        const scanStatus = document.getElementById('scan-status');
+        const setupForm = document.getElementById('setup-form');
+        const togglePasswordBtn = document.getElementById('toggle-password');
+        const passwordInput = document.getElementById('password');
+        const eyeIcon = document.getElementById('eye-icon');
+
+        togglePasswordBtn.addEventListener('click', () => {
+            const type = passwordInput.getAttribute('type') === 'password' ? 'text' : 'password';
+            passwordInput.setAttribute('type', type);
+
+            if (type === 'text') {
+                eyeIcon.innerHTML = `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />`;
+            } else {
+                eyeIcon.innerHTML = `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />`;
+            }
+        });
+
+        function updateSubmitState() {
+            const hasSelectedNetwork = Boolean(select.value);
+            const hasManualNetwork = Boolean(manualSsidInput.value.trim());
+            submitBtn.disabled = !(hasSelectedNetwork || hasManualNetwork);
+        }
+
+        function setScanStatus(message, isError = false) {
+            scanStatus.textContent = message;
+            scanStatus.classList.toggle('error', isError);
+        }
+
+        async function fetchWifiNetworks() {
+            appContainer.classList.add('scanning');
+            select.innerHTML = '<option value="">Scanning networks...</option>';
+            select.disabled = true;
+            setScanStatus('Scanning nearby Wi-Fi networks...');
+            updateSubmitState();
+
+            try {
+                const response = await fetch('/wifi-scan');
+
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+
+                const payload = await response.json();
+                const networks = Array.isArray(payload) ? payload : (payload.networks || []);
+                const error = Array.isArray(payload) ? null : payload.error;
+                populateDropdown(networks, error);
+            } catch (error) {
+                console.warn('Could not fetch from /wifi-scan.', error);
+                populateDropdown([], 'Scan request failed. Type your Wi-Fi name manually and continue.');
+            }
+        }
+
+        function populateDropdown(networks, errorMessage = null) {
+            appContainer.classList.remove('scanning');
+            select.innerHTML = '';
+            select.disabled = false;
+
+            if (networks.length === 0) {
+                const option = document.createElement('option');
+                option.textContent = errorMessage || 'No networks found';
+                option.value = '';
+                select.appendChild(option);
+                setScanStatus(errorMessage || 'No networks were returned. Type the network name manually if needed.', Boolean(errorMessage));
+                updateSubmitState();
+                return;
+            }
+
+            setScanStatus('Scan complete. Pick a network from the list or type one manually.');
+
+            for (const network of networks) {
+                const option = document.createElement('option');
+                option.value = network.ssid;
+                option.textContent = network.ssid;
+                select.appendChild(option);
+            }
+
+            updateSubmitState();
+        }
+
+        refreshBtn.addEventListener('click', fetchWifiNetworks);
+        select.addEventListener('change', updateSubmitState);
+        manualSsidInput.addEventListener('input', updateSubmitState);
+        setupForm.addEventListener('submit', (event) => {
+            if (!select.value && !manualSsidInput.value.trim()) {
+                event.preventDefault();
+                setScanStatus('Enter your Wi-Fi name manually or choose one from scan results before continuing.', true);
+                manualSsidInput.focus();
+                return;
+            }
+
+            setScanStatus('Sending Wi-Fi details to the frame...');
+        });
+
+        fetchWifiNetworks();
+    </script>
+</body>
+
+</html><!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Photo Frame Setup</title>
+    <style>
+        :root {
+            --primary: #3b82f6;
+            --primary-hover: #2563eb;
+            --bg-color: #f8fafc;
+            --card-bg: #ffffff;
+            --text-main: #0f172a;
+            --text-muted: #64748b;
+            --border-color: #e2e8f0;
+            --focus-ring: rgba(59, 130, 246, 0.3);
+            --transition: all 0.2s ease-in-out;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-color: var(--bg-color);
+            background-image: radial-gradient(var(--border-color) 1px, transparent 1px);
+            background-size: 20px 20px;
+            color: var(--text-main);
+            padding: 1rem;
+        }
+
+        .container {
+            background-color: var(--card-bg);
+            width: 100%;
+            max-width: 420px;
+            padding: 2.5rem 2rem;
+            border-radius: 1rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06), 0 20px 25px -5px rgba(0, 0, 0, 0.05);
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+
+        .header-icon {
+            display: inline-flex;
+            justify-content: center;
+            align-items: center;
+            width: 64px;
+            height: 64px;
+            background-color: #eff6ff;
+            color: var(--primary);
+            border-radius: 50%;
+            margin-bottom: 1rem;
+        }
+
+        .header-icon svg {
+            width: 32px;
+            height: 32px;
+        }
+
+        .scanning .header-icon svg {
+            animation: pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+                transform: scale(1);
+            }
+
+            50% {
+                opacity: .5;
+                transform: scale(0.95);
+            }
+        }
+
+        h1 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+            color: var(--text-main);
+        }
+
+        p.subtitle {
+            color: var(--text-muted);
+            font-size: 0.875rem;
+        }
+
+        form {
+            display: flex;
+            flex-direction: column;
+            gap: 1.25rem;
+        }
+
+        .input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        label {
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: var(--text-main);
+        }
+
+        .field-hint {
+            font-size: 0.8125rem;
+            color: var(--text-muted);
+            line-height: 1.4;
+        }
+
+        .status-message {
+            min-height: 1.25rem;
+            font-size: 0.8125rem;
+            color: var(--text-muted);
+            line-height: 1.4;
+        }
+
+        .status-message.error {
+            color: #b45309;
+        }
+
+        .input-wrapper {
+            position: relative;
+            display: flex;
+            align-items: center;
+        }
+
+        .input-wrapper svg {
+            position: absolute;
+            left: 12px;
+            color: var(--text-muted);
+            width: 20px;
+            height: 20px;
+            pointer-events: none;
+        }
+
+        input,
+        select {
+            width: 100%;
+            padding: 0.75rem 1rem 0.75rem 2.5rem;
+            font-size: 1rem;
+            color: var(--text-main);
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 0.5rem;
+            appearance: none;
+            transition: var(--transition);
+        }
+
+        /* Custom dropdown arrow */
+        select {
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2364748b'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 1rem center;
+            background-size: 1.25em;
+            padding-right: 2.5rem;
+        }
+
+        input:focus,
+        select:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px var(--focus-ring);
+        }
+
+        .action-button {
+            position: absolute;
+            right: 8px;
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            padding: 4px;
+            border-radius: 4px;
+            display: flex;
+            transition: var(--transition);
+        }
+
+        .action-button:hover {
+            background-color: #f1f5f9;
+            color: var(--text-main);
+        }
+
+        .action-button svg {
+            position: static;
+            width: 20px;
+            height: 20px;
+            pointer-events: auto;
+        }
+
+        button[type="submit"] {
+            margin-top: 0.5rem;
+            padding: 0.875rem;
+            font-size: 1rem;
+            font-weight: 600;
+            border: none;
+            border-radius: 0.5rem;
+            background-color: var(--primary);
+            color: white;
+            cursor: pointer;
+            transition: var(--transition);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        button[type="submit"]:hover {
+            background-color: var(--primary-hover);
+            transform: translateY(-1px);
+        }
+
+        button[type="submit"]:active {
+            transform: translateY(0);
+        }
+
+        button[type="submit"]:disabled {
+            background-color: var(--text-muted);
+            cursor: not-allowed;
+            transform: none;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container" id="app-container">
+        <div class="header">
+            <div class="header-icon">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"
+                    stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round"
+                        d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
+                </svg>
+            </div>
+            <h1>Smart Frame Setup</h1>
+            <p class="subtitle">Connect your frame to a Wi-Fi network. If this page did not open automatically, browse to 192.168.71.1.</p>
+        </div>
+
+        <form action="/connect" method="post" id="setup-form">
+            <div class="input-group">
+                <label for="ssid">Wi-Fi Network</label>
+                <div class="input-wrapper">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+                    </svg>
+                    <select id="ssid" name="ssid">
+                        <option value="">Scanning networks...</option>
+                    </select>
+                    <button type="button" class="action-button" id="refresh-btn" title="Scan again">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                    </button>
+                </div>
+                <p class="status-message" id="scan-status">Tap scan to search nearby networks, or type your network name manually below.</p>
+            </div>
+
+            <div class="input-group">
+                <label for="manual-ssid">Network Name</label>
+                <div class="input-wrapper">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M3 5h18M3 12h18M3 19h18" />
+                    </svg>
+                    <input type="text" id="manual-ssid" name="manual_ssid" placeholder="Type your Wi-Fi name if scan is empty">
+                </div>
+                <p class="field-hint">Use this if scan fails or your home network is hidden.</p>
+            </div>
+
+            <div class="input-group">
+                <label for="password">Password</label>
+                <div class="input-wrapper">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                    </svg>
+                    <input type="password" id="password" name="password" placeholder="Leave blank if open network">
+                    <button type="button" class="action-button" id="toggle-password" title="Toggle password visibility">
+                        <svg id="eye-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+                            stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
+
+            <button type="submit" id="submit-btn" disabled>
+                Connect to Frame
+            </button>
+        </form>
+    </div>
+
+    <script>
+        const select = document.getElementById('ssid');
+        const submitBtn = document.getElementById('submit-btn');
+        const appContainer = document.getElementById('app-container');
+        const refreshBtn = document.getElementById('refresh-btn');
+        const manualSsidInput = document.getElementById('manual-ssid');
+        const scanStatus = document.getElementById('scan-status');
+        const setupForm = document.getElementById('setup-form');
+
+        // Password visibility toggle logic
+        const togglePasswordBtn = document.getElementById('toggle-password');
+        const passwordInput = document.getElementById('password');
+        const eyeIcon = document.getElementById('eye-icon');
+
+        togglePasswordBtn.addEventListener('click', () => {
+            const type = passwordInput.getAttribute('type') === 'password' ? 'text' : 'password';
+            passwordInput.setAttribute('type', type);
+
+            // Swap SVG between eye and eye-off
+            if (type === 'text') {
+                eyeIcon.innerHTML = `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />`;
+            } else {
+                eyeIcon.innerHTML = `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />`;
+            }
+        });
+
+        function updateSubmitState() {
+            const hasSelectedNetwork = Boolean(select.value);
+            const hasManualNetwork = Boolean(manualSsidInput.value.trim());
+            submitBtn.disabled = !(hasSelectedNetwork || hasManualNetwork);
+        }
+
+        function setScanStatus(message, isError = false) {
+            scanStatus.textContent = message;
+            scanStatus.classList.toggle('error', isError);
+        }
+
+        async function fetchWifiNetworks() {
+            // Set Loading UI state
+            appContainer.classList.add('scanning');
+            select.innerHTML = '<option value="">Scanning networks...</option>';
+            select.disabled = true;
+            setScanStatus('Scanning nearby Wi-Fi networks...');
+            updateSubmitState();
+
+            try {
+                const response = await fetch('/wifi-scan');
+
+                if (!response.ok) throw new Error('Network response was not ok');
+
+                const payload = await response.json();
+                const networks = Array.isArray(payload) ? payload : (payload.networks || []);
+                const error = Array.isArray(payload) ? null : payload.error;
+                populateDropdown(networks, error);
+
+            } catch (error) {
+                console.warn('Could not fetch from /wifi-scan.', error);
+                populateDropdown([], 'Scan request failed. Type your Wi-Fi name manually and continue.');
+            }
+        }
+
+        function populateDropdown(networks, errorMessage = null) {
+            appContainer.classList.remove('scanning');
+            select.innerHTML = '';
+            select.disabled = false;
+
+            if (networks.length === 0) {
+                const option = document.createElement('option');
+                option.textContent = errorMessage || 'No networks found';
+                option.value = "";
+                select.appendChild(option);
+                setScanStatus(errorMessage || 'No networks were returned. Type the network name manually if needed.', Boolean(errorMessage));
+                updateSubmitState();
+                return;
+            }
+
+            setScanStatus('Scan complete. Pick a network from the list or type one manually.');
+
+            for (const network of networks) {
+                const option = document.createElement('option');
+                option.value = network.ssid;
+                option.textContent = network.ssid;
+                select.appendChild(option);
+            }
+
+            updateSubmitState();
+        }
+
+        // Add listener to the refresh button
+        refreshBtn.addEventListener('click', fetchWifiNetworks);
+        select.addEventListener('change', updateSubmitState);
+        manualSsidInput.addEventListener('input', updateSubmitState);
+        setupForm.addEventListener('submit', (event) => {
+            if (!select.value && !manualSsidInput.value.trim()) {
+                event.preventDefault();
+                setScanStatus('Enter your Wi-Fi name manually or choose one from scan results before continuing.', true);
+                manualSsidInput.focus();
+                return;
+            }
+
+            setScanStatus('Submitting Wi-Fi credentials to the frame...');
+        });
+
+        // Initial fetch on load
+        fetchWifiNetworks();
+    </script>
+</body>
+
+</html>

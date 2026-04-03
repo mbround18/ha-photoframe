@@ -38,6 +38,15 @@ cargo firmware-check
 cargo firmware-build
 ```
 
+Firmware OAuth credentials are baked into the binary from the workspace `.env`
+file during build. Set `GOOGLE_OAUTH_CLIENT_ID` and
+`GOOGLE_OAUTH_CLIENT_SECRET` in `.env` before running `make build`,
+`cargo firmware-build`, or `make dev`.
+
+If `.env` also contains `WIFI_SSID` and optional `WIFI_PASSWORD`, the firmware
+will try that network first on boot and skip the captive Wi-Fi setup flow when
+the connection succeeds.
+
 ## Workspace Layout
 
 - `frame-core`: shared state and models that remain host-testable

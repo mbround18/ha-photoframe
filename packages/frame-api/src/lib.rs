@@ -6,5 +6,4 @@ pub mod oauth;
 pub mod transport;
 
 pub use client::GooglePhotosClient;
-pub use oauth::DeviceAuthorization;
 pub use transport::{PhotosClient, create_photos_client};

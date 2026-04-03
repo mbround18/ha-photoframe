@@ -6,6 +6,7 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 frame-api = { path = "../frame-api" }
+frame-captive-portal = { path = "../frame-captive-portal" }
 frame-core = { path = "../frame-core" }
 frame-net = { path = "../frame-net" }
 frame-ui = { path = "../frame-ui" }
@@ -21,6 +22,7 @@ tracing-subscriber = { version = "0.3.20", default-features = false, features = 
   "std",
   "ansi",
 ] }
+rand = "0.8.5"
 
 [target.'cfg(target_os = "espidf")'.dependencies]
 # `esp-idf-sys` provides the low-level FFI (Foreign Function Interface)
@@ -28,11 +30,17 @@ tracing-subscriber = { version = "0.3.20", default-features = false, features = 
 # is critical as it includes the necessary boilerplate to properly initialize
 # the Rust runtime environment on the ESP32.
 esp-idf-sys = { version = "0.37.2", features = ["binstart"] }
-esp-idf-hal = "0.43.1"
-esp-idf-svc = { version = "0.48.1", default-features = false }
+esp-idf-hal = "0.46.2"
+esp-idf-svc = { version = "0.52.1", default-features = false }
 
 [build-dependencies]
 embuild = { version = "0.33.1", features = ["espidf"] }
 
 [[package.metadata.esp-idf-sys.extra_components]]
 component_dirs = ["components", "../../tmp/common_components"]
+
+[[package.metadata.esp-idf-sys.extra_components]]
+remote_component = { name = "espressif/esp_wifi_remote", version = "*" }
+
+[[package.metadata.esp-idf-sys.extra_components]]
+remote_component = { name = "espressif/mdns", version = "1.8.2" }

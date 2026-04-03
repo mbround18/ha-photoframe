@@ -1,0 +1,97 @@
+import { InfoTile } from "InfoTile.slint";
+
+export component InfoGrid inherits GridLayout {
+    in property <string> active-screen;
+    in property <string> local-setup-url;
+    in property <string> pairing-code;
+    in property <image> pairing-qr-image;
+    in property <string> pairing-qr-url;
+    in property <string> owner-email;
+    in property <string> network-status;
+    in property <string> status-text;
+
+    spacing: 20px;
+
+    Row {
+        InfoTile {
+            label: root.active-screen == "browser-pairing" ? "Pass code" : "Action Required";
+            value: (root.active-screen == "wifi-connect" ? "Join Wi-Fi" :
+                    root.active-screen == "pairing" ? "Enter Code" :
+                    root.active-screen == "browser-pairing" ? root.pairing-code : "Standby");
+            hint: root.active-screen == "browser-pairing"
+                ? "Scan the QR code to validate instantly, or type this backup pass code into the local setup page if scanning is unavailable."
+                : "Look at your mobile device or laptop to continue.";
+            highlight: true;
+        }
+
+        if root.active-screen == "browser-pairing" : Rectangle {
+            border-radius: 24px;
+            background: #0f172a;
+            border-width: 1px;
+            border-color: #38bdf844;
+
+            VerticalLayout {
+                padding: 24px;
+                spacing: 12px;
+
+                Text {
+                    text: "SCAN TO PAIR";
+                    color: #38bdf8;
+                    font-size: 12px;
+                    font-weight: 800;
+                    letter-spacing: 1px;
+                }
+
+                Rectangle {
+                    height: 220px;
+                    border-radius: 20px;
+                    background: #f8fafc;
+
+                    Image {
+                        x: 18px;
+                        y: 18px;
+                        width: parent.width - 36px;
+                        height: parent.height - 36px;
+                        source: root.pairing-qr-image;
+                        image-fit: contain;
+                    }
+                }
+
+                Text {
+                    text: root.pairing-qr-url != "" ? root.pairing-qr-url : (root.local-setup-url != "" ? root.local-setup-url : "Waiting for direct setup link...");
+                    wrap: word-wrap;
+                    color: #f8fafc;
+                    font-size: 15px;
+                    font-weight: 600;
+                }
+
+                Text {
+                    text: "Scan with your phone to open the frame directly and validate this browser automatically.";
+                    wrap: word-wrap;
+                    color: #64748b;
+                    font-size: 15px;
+                }
+            }
+        }
+
+        if root.active-screen != "browser-pairing" : InfoTile {
+            label: "Web Dashboard";
+            value: root.local-setup-url != "" ? root.local-setup-url : "Detecting...";
+            hint: "You can manage settings from this URL once connected.";
+        }
+    }
+
+    Row {
+        InfoTile {
+            label: "Current User";
+            value: root.owner-email != "" ? root.owner-email : "None Linked";
+            hint: "The primary account owner for this photo stream.";
+        }
+
+        InfoTile {
+            label: "Network Mode";
+            value: root.network-status;
+            hint: root.status-text;
+        }
+    }
+}

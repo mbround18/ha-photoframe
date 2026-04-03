@@ -17,17 +17,20 @@ BOOTLOADER_BIN := $(RELEASE_DIR)/bootloader.bin
 PARTITION_TABLE_BIN := $(RELEASE_DIR)/partition-table.bin
 BASE_PATH := /usr/bin:/bin:$(HOME)/.cargo/bin
 SYSTEM_ENV := /usr/bin/env
-FIRMWARE_BUILD_ENV := $(SYSTEM_ENV) -u VIRTUAL_ENV -u CONDA_PREFIX -u CONDA_DEFAULT_ENV -u PYTHONHOME -u PYTHONPATH -u UV_PROJECT_ENVIRONMENT PATH="$(BASE_PATH)" PYTHON=/usr/bin/python3 MCU=esp32p4 ESP_IDF_VERSION=$(ESP_IDF_VERSION) ESP_IDF_TOOLS_INSTALL_DIR=global ESP_IDF_SYS_ROOT_CRATE=frame-firmware ESP_IDF_SDKCONFIG_DEFAULTS="$(CURDIR)/sdkconfig.defaults"
-FIRMWARE_TOOL_ENV := $(SYSTEM_ENV) -u VIRTUAL_ENV -u CONDA_PREFIX -u CONDA_DEFAULT_ENV -u PYTHONHOME -u PYTHONPATH -u UV_PROJECT_ENVIRONMENT PATH="$(BASE_PATH):$(ESP_IDF_PYTHON_ENV)/bin"
+FIRMWARE_BUILD_ENV := $(SYSTEM_ENV) -u VIRTUAL_ENV -u CONDA_PREFIX -u CONDA_DEFAULT_ENV -u PYTHONHOME -u PYTHONPATH -u UV_PROJECT_ENVIRONMENT PATH="$(BASE_PATH)" PYTHON=/usr/bin/python3 MCU=esp32p4 ESP_IDF_VERSION=$(ESP_IDF_VERSION) ESP_IDF_TOOLS_INSTALL_DIR=global ESP_IDF_SYS_ROOT_CRATE=frame-firmware ESP_IDF_SDKCONFIG_DEFAULTS="$(CURDIR)/sdkconfig.defaults" IDF_PYTHON_ENV_PATH="$(ESP_IDF_PYTHON_ENV)"
+FIRMWARE_TOOL_ENV := $(SYSTEM_ENV) -u VIRTUAL_ENV -u CONDA_PREFIX -u CONDA_DEFAULT_ENV -u PYTHONHOME -u PYTHONPATH -u UV_PROJECT_ENVIRONMENT PATH="$(BASE_PATH):$(ESP_IDF_PYTHON_ENV)/bin" IDF_PYTHON_ENV_PATH="$(ESP_IDF_PYTHON_ENV)"
 
-.PHONY: bootstrap-python-env build format lint flash monitor dev
+.PHONY: bootstrap-python-env clean-firmware-ui-cache build format lint flash monitor dev
 
 bootstrap-python-env:
 	@if [ ! -x "$(ESP_IDF_PYTHON_BIN)" ]; then \
 		./scripts/bootstrap-env.sh; \
 	fi
 
-build: bootstrap-python-env
+clean-firmware-ui-cache:
+	@find target/$(FIRMWARE_TARGET) -maxdepth 3 -type d -name 'esp-idf-sys-*' -exec rm -rf {} + 2>/dev/null || true
+
+build: bootstrap-python-env clean-firmware-ui-cache
 	$(FIRMWARE_BUILD_ENV) $(FIRMWARE_BUILD_CMD)
 
 format:
@@ -38,7 +41,7 @@ lint:
 
 flash: build
 	@set -e; \
-	flash_args=$$(find target/$(FIRMWARE_TARGET) -type f -name flash_project_args -printf '%T@ %p\n' | sort -nr | head -n1 | cut -d' ' -f2-); \
+	flash_args=$$(find target/$(FIRMWARE_TARGET) -type f -path '*/out/build/flash_project_args' -printf '%T@ %p\n' | sort -nr | head -n1 | cut -d' ' -f2-); \
 	if [ -z "$$flash_args" ]; then \
 		echo "Missing ESP-IDF flash bundle under target/$(FIRMWARE_TARGET). Run 'make build' first." >&2; \
 		exit 1; \

@@ -3,6 +3,18 @@
 // application loops.
 
 #[cfg(target_os = "espidf")]
+use anyhow::Context;
+
+#[cfg(target_os = "espidf")]
+use esp_idf_svc::nvs::EspDefaultNvsPartition;
+
+#[cfg(target_os = "espidf")]
+mod ownership_store;
+
+#[cfg(target_os = "espidf")]
+mod setup_state_store;
+
+#[cfg(target_os = "espidf")]
 fn rom_print(message: &'static [u8]) {
     debug_assert_eq!(message.last().copied(), Some(0));
 
@@ -36,6 +48,230 @@ fn init_tracing() -> anyhow::Result<()> {
 }
 
 #[cfg(target_os = "espidf")]
+fn quiet_hosted_component_logs() {
+    unsafe {
+        esp_idf_sys::esp_log_level_set(
+            b"co-pro-main\0".as_ptr().cast(),
+            esp_idf_sys::esp_log_level_t_ESP_LOG_WARN,
+        );
+        esp_idf_sys::esp_log_level_set(
+            b"rpc_rsp\0".as_ptr().cast(),
+            esp_idf_sys::esp_log_level_t_ESP_LOG_WARN,
+        );
+    }
+}
+
+#[cfg(target_os = "espidf")]
+struct LocalSetupEndpoint {
+    #[cfg(any(esp_idf_comp_mdns_enabled, esp_idf_comp_espressif__mdns_enabled))]
+    _mdns: Option<esp_idf_svc::mdns::EspMdns>,
+    host: String,
+    local_url: String,
+    ip_url: Option<String>,
+    pairing_code: String,
+}
+
+#[cfg(target_os = "espidf")]
+fn local_setup_state_from_app(
+    app_state: &frame_core::AppState,
+) -> frame_captive_portal::LocalSetupState {
+    let status = match app_state.network_phase {
+        frame_core::NetworkPhase::Authorizing => {
+            "Almost there. Finish Google sign-in to unlock your frame.".to_string()
+        }
+        frame_core::NetworkPhase::Connected if app_state.phase == frame_core::AppPhase::Ready => {
+            "Your frame is ready for photos.".to_string()
+        }
+        frame_core::NetworkPhase::Connected => {
+            "Wi-Fi is connected. Finishing setup details now.".to_string()
+        }
+        frame_core::NetworkPhase::Provisioning => {
+            "Join the frame's setup Wi-Fi to keep going.".to_string()
+        }
+        frame_core::NetworkPhase::Unprovisioned => "The frame is getting setup ready.".to_string(),
+    };
+
+    let detail = match app_state.network_phase {
+        frame_core::NetworkPhase::Authorizing => {
+            if app_state.auth_user_code.is_some() {
+                "Open the Google sign-in page on another device and enter the code now shown on the frame. Approval will sync back automatically."
+                    .to_string()
+            } else {
+                "Scan the QR code shown on the frame or open the frame's local page. Once that browser is verified, the Google sign-in page and code will appear automatically."
+                    .to_string()
+            }
+        }
+        frame_core::NetworkPhase::Connected if app_state.phase == frame_core::AppPhase::Ready => {
+            "You can close this page now. The frame should begin pulling in your library shortly."
+                .to_string()
+        }
+        frame_core::NetworkPhase::Provisioning => {
+            "Stay connected to the frame's temporary network while you choose your home Wi-Fi."
+                .to_string()
+        }
+        _ => "This page is served directly by the frame on your local network, so nearby setup stays simple and private."
+            .to_string(),
+    };
+
+    frame_captive_portal::LocalSetupState {
+        status,
+        detail,
+        owner_email: app_state.google_user_email().map(ToOwned::to_owned),
+        pairing_code: app_state.pairing_code.clone(),
+        local_setup_url: app_state.local_setup_url.clone(),
+        local_setup_ip_url: app_state.local_setup_ip_url.clone(),
+        auth_verification_uri: app_state.auth_verification_uri.clone(),
+        auth_user_code: app_state.auth_user_code.clone(),
+    }
+}
+
+#[cfg(target_os = "espidf")]
+fn restore_owner_session(
+    app_state: &mut frame_core::AppState,
+    owner_store: &ownership_store::OwnerStore,
+) -> anyhow::Result<bool> {
+    let Some(stored_session) = owner_store.load()? else {
+        return Ok(false);
+    };
+
+    match frame_api::oauth::refresh_device_access_token(&stored_session.refresh_token) {
+        Ok(token) => {
+            let mut google_user = frame_api::oauth::fetch_account_profile(&token.access_token)?;
+
+            if google_user.subject != stored_session.owner.subject {
+                owner_store.clear()?;
+                anyhow::bail!(
+                    "stored owner mismatch after refresh: expected {}, got {}",
+                    stored_session.owner.email,
+                    google_user.email
+                );
+            }
+
+            google_user.refresh_token = stored_session.refresh_token.clone();
+            app_state.set_google_user(google_user.clone());
+            app_state.set_access_token(token.access_token);
+            tracing::info!(
+                target: "frame_firmware",
+                owner_email = google_user.email,
+                "restored owner session from NVS"
+            );
+            Ok(true)        }
+        Err(error) => {
+            tracing::warn!(
+                target: "frame_firmware",
+                "failed to restore owner session from refresh token: {error}"
+            );
+            Ok(false)
+        }
+    }
+}
+
+#[cfg(target_os = "espidf")]
+fn complete_owner_sign_in(
+    app_state: &mut frame_core::AppState,
+    owner_store: &ownership_store::OwnerStore,
+    token: &frame_api::oauth::DeviceAccessToken,
+) -> anyhow::Result<()> {
+    let mut google_user = frame_api::oauth::fetch_account_profile(&token.access_token)?;
+
+    if let Some(existing_google_user) = app_state.google_user.as_ref() {
+        if existing_google_user.subject != google_user.subject {
+            anyhow::bail!(
+                "frame is already owned by {} and cannot be reassigned to {} without reset",
+                existing_google_user.email,
+                google_user.email
+            );
+        }
+    }
+
+    let refresh_token = token
+        .refresh_token
+        .clone()
+        .context("device authorization did not return a refresh token")?;
+    google_user.refresh_token = refresh_token.clone();
+    owner_store.save(&ownership_store::StoredOwnerSession {
+        owner: google_user.clone(),
+        refresh_token,
+    })?;
+    app_state.set_google_user(google_user.clone());
+    app_state.set_access_token(token.access_token.clone());
+
+    tracing::info!(
+        target: "frame_firmware",
+        owner_email = google_user.email,
+        "owner sign-in completed and persisted"
+    );
+    Ok(())
+}
+
+#[cfg(target_os = "espidf")]
+fn generate_pairing_code() -> String {
+    use rand::Rng;
+
+    let mut rng = rand::thread_rng();
+    format!("{:06}", rng.gen_range(0..=999_999))
+}
+
+#[cfg(target_os = "espidf")]
+fn is_google_photos_scope_error(error: &anyhow::Error) -> bool {
+    let message = format!("{error:#}");
+    message.contains("ACCESS_TOKEN_SCOPE_INSUFFICIENT")
+        || message.contains("insufficient authentication scopes")
+}
+
+#[cfg(target_os = "espidf")]
+fn advertise_local_setup(pairing_code: String) -> LocalSetupEndpoint {
+    let host = format!("frame-{}", pairing_code.to_lowercase());
+    let local_url = format!("http://{host}.local/");
+    let ip_url = frame_net::wifi::current_sta_ip()
+        .map(|maybe_ip| maybe_ip.map(|ip| format!("http://{ip}/")))
+        .unwrap_or_else(|error| {
+            tracing::warn!(target: "frame_firmware", "unable to read station IP after Wi-Fi connect: {error}");
+            None
+        });
+
+    #[cfg(any(esp_idf_comp_mdns_enabled, esp_idf_comp_espressif__mdns_enabled))]
+    let mut mdns = match esp_idf_svc::mdns::EspMdns::take() {
+        Ok(mdns) => Some(mdns),
+        Err(error) => {
+            tracing::warn!(target: "frame_firmware", "mDNS startup failed: {error}");
+            None
+        }
+    };
+
+    #[cfg(any(esp_idf_comp_mdns_enabled, esp_idf_comp_espressif__mdns_enabled))]
+    if let Some(mdns_service) = mdns.as_mut() {
+        if let Err(error) = mdns_service.set_hostname(&host) {
+            tracing::warn!(target: "frame_firmware", "failed to set mDNS hostname '{host}': {error}");
+        }
+        if let Err(error) = mdns_service.set_instance_name("Photo Frame") {
+            tracing::warn!(target: "frame_firmware", "failed to set mDNS instance name: {error}");
+        }
+        if let Err(error) = mdns_service.add_service(
+            Some("Photo Frame Setup"),
+            "_http",
+            "_tcp",
+            80,
+            &[("path", "/"), ("pairing", pairing_code.as_str())],
+        ) {
+            tracing::warn!(target: "frame_firmware", "failed to advertise mDNS HTTP service: {error}");
+        }
+    }
+
+    #[cfg(not(any(esp_idf_comp_mdns_enabled, esp_idf_comp_espressif__mdns_enabled)))]
+    tracing::warn!(target: "frame_firmware", "mDNS component is not enabled in this build; showing the planned .local hostname in the UI but only the direct IP URL will be reachable");
+
+    LocalSetupEndpoint {
+        #[cfg(any(esp_idf_comp_mdns_enabled, esp_idf_comp_espressif__mdns_enabled))]
+        _mdns: mdns,
+        host,
+        local_url,
+        ip_url,
+        pairing_code,
+    }
+}
+
+#[cfg(target_os = "espidf")]
 fn main() {
     rom_print(b"frame-firmware: entered Rust main\r\n\0");
 
@@ -45,12 +281,53 @@ fn main() {
     // the required ESP-IDF patches before composing the current Rust layers.
     esp_idf_sys::link_patches();
 
-    if let Err(err) = run() {
+    const APP_THREAD_STACK_SIZE: usize = 128 * 1024;
+
+    let app_thread = std::thread::Builder::new()
+        .name("frame-app".to_string())
+        .stack_size(APP_THREAD_STACK_SIZE)
+        .spawn(run)
+        .expect("failed to spawn frame-app thread");
+
+    let run_result = match app_thread.join() {
+        Ok(result) => result,
+        Err(_) => Err(anyhow::anyhow!("frame-app thread panicked")),
+    };
+
+    if let Err(err) = run_result {
         rom_print(b"frame-firmware: run() returned error\r\n\0");
         eprintln!("fatal firmware startup error: {err:#}");
 
         loop {
             std::thread::sleep(std::time::Duration::from_secs(1));
+        }
+    }
+}
+
+#[cfg(target_os = "espidf")]
+fn persist_setup_checkpoint(
+    store: &setup_state_store::SetupStateStore,
+    checkpoint: setup_state_store::SetupCheckpoint,
+    app_state: &frame_core::AppState,
+    browser_verified: bool,
+) {
+    match store.save_checkpoint(checkpoint, app_state, browser_verified) {
+        Ok(snapshot) => {
+            tracing::info!(
+                target: "frame_firmware",
+                checkpoint = snapshot.checkpoint.as_str(),
+                phase = snapshot.app_phase.as_str(),
+                network = snapshot.network_phase.as_str(),
+                flags = snapshot.flags_summary(),
+                "persisted setup checkpoint"
+            );
+        }
+        Err(error) => {
+            tracing::warn!(
+                target: "frame_firmware",
+                checkpoint = checkpoint.as_str(),
+                "failed to persist setup checkpoint: {error}"
+            );
         }
     }
 }
@@ -67,12 +344,43 @@ fn run() -> anyhow::Result<()> {
     let sys_loop = esp_idf_svc::eventloop::EspSystemEventLoop::take()?;
 
     frame_net::wifi::init_wifi_manager(peripherals.modem, sys_loop.clone())?;
+    quiet_hosted_component_logs();
 
     let mut app_state = frame_core::AppState::new();
+    let nvs_partition =
+        EspDefaultNvsPartition::take().context("failed to open default NVS partition")?;
+    let owner_store = ownership_store::OwnerStore::new(nvs_partition.clone())?;
+    let setup_state_store = setup_state_store::SetupStateStore::new(nvs_partition)?;
     let mut provisioning_manager = frame_net::create_provisioning_manager();
-    let photos_client = frame_api::create_photos_client();
     let mut ui = frame_ui::create_ui()?;
     rom_print(b"frame-firmware: UI adapter created\r\n\0");
+
+    match setup_state_store.load() {
+        Ok(Some(previous_state)) => {
+            tracing::info!(
+                target: "frame_firmware",
+                checkpoint = previous_state.checkpoint.as_str(),
+                phase = previous_state.app_phase.as_str(),
+                network = previous_state.network_phase.as_str(),
+                flags = previous_state.flags_summary(),
+                "loaded previous persisted setup checkpoint"
+            );
+        }
+        Ok(None) => {}
+        Err(error) => {
+            tracing::warn!(
+                target: "frame_firmware",
+                "failed to load previous setup checkpoint: {error}"
+            );
+        }
+    }
+
+    persist_setup_checkpoint(
+        &setup_state_store,
+        setup_state_store::SetupCheckpoint::BootStarted,
+        &app_state,
+        false,
+    );
 
     {
         let _span = tracing::info_span!(
@@ -89,10 +397,17 @@ fn run() -> anyhow::Result<()> {
             "initial splash rendered"
         );
     }
+    persist_setup_checkpoint(
+        &setup_state_store,
+        setup_state_store::SetupCheckpoint::SplashRendered,
+        &app_state,
+        false,
+    );
 
     std::thread::sleep(std::time::Duration::from_millis(1500));
 
     app_state.begin_setup();
+    restore_owner_session(&mut app_state, &owner_store)?;
     ui.sync_state(&app_state)?;
     tracing::info!(
         target: "frame_firmware",
@@ -100,27 +415,128 @@ fn run() -> anyhow::Result<()> {
         network = app_state.network_phase.as_str(),
         "setup screen rendered"
     );
-
-    let network_phase = {
-        let _span = tracing::info_span!("network_provisioning").entered();
-        provisioning_manager.ensure_network()?
-    };
-    app_state.set_network_phase(network_phase.clone());
-    ui.sync_state(&app_state)?;
-    tracing::info!(
-        target: "frame_firmware",
-        network = app_state.network_phase.as_str(),
-        "network phase updated"
+    persist_setup_checkpoint(
+        &setup_state_store,
+        if app_state.google_user.is_some() {
+            setup_state_store::SetupCheckpoint::OwnerRestored
+        } else {
+            setup_state_store::SetupCheckpoint::SetupRendered
+        },
+        &app_state,
+        false,
     );
 
-    if app_state.network_phase == frame_core::NetworkPhase::Provisioning {
+    loop {
+        let network_phase = {
+            let _span = tracing::info_span!("network_provisioning").entered();
+            provisioning_manager.ensure_network()?
+        };
+        app_state.set_network_phase(network_phase.clone());
+        ui.sync_state(&app_state)?;
+        tracing::info!(
+            target: "frame_firmware",
+            network = app_state.network_phase.as_str(),
+            "network phase updated"
+        );
+        persist_setup_checkpoint(
+            &setup_state_store,
+            match app_state.network_phase {
+                frame_core::NetworkPhase::Provisioning => {
+                    setup_state_store::SetupCheckpoint::Provisioning
+                }
+                frame_core::NetworkPhase::Connected => {
+                    setup_state_store::SetupCheckpoint::NetworkConnected
+                }
+                frame_core::NetworkPhase::Authorizing => {
+                    setup_state_store::SetupCheckpoint::AwaitingBrowserPair
+                }
+                frame_core::NetworkPhase::Unprovisioned => {
+                    setup_state_store::SetupCheckpoint::SetupRendered
+                }
+            },
+            &app_state,
+            false,
+        );
+
+        if app_state.network_phase == frame_core::NetworkPhase::Provisioning {
+            if let Some((ssid, password)) = provisioning_manager.get_provisioning_ap_details() {
+                app_state.set_provisioning_details(ssid, password);
+            }
+            ui.sync_state(&app_state)?;
+        }
+
+        if app_state.network_phase == frame_core::NetworkPhase::Connected {
+            break;
+        }
+
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+
+    let mut local_setup_server = frame_captive_portal::create_local_setup_server()?;
+    local_setup_server.start()?;
+    local_setup_server.update_state(local_setup_state_from_app(&app_state))?;
+    persist_setup_checkpoint(
+        &setup_state_store,
+        setup_state_store::SetupCheckpoint::NetworkConnected,
+        &app_state,
+        false,
+    );
+
+    if app_state.google_user.is_none() {
+        let local_setup = advertise_local_setup(generate_pairing_code());
+        app_state.clear_provisioning_details();
+        app_state.set_local_setup_details(
+            local_setup.host.clone(),
+            Some(local_setup.local_url.clone()),
+            local_setup.ip_url.clone(),
+        );
+        app_state.set_pairing_code(local_setup.pairing_code.clone());
+        ui.sync_state(&app_state)?;
+        local_setup_server.update_state(local_setup_state_from_app(&app_state))?;
+        tracing::info!(
+            target: "frame_firmware",
+            setup_host = local_setup.host,
+            setup_url = local_setup.local_url,
+            setup_ip_url = local_setup.ip_url.as_deref().unwrap_or(""),
+            pairing_code = local_setup.pairing_code,
+            "local setup endpoint prepared"
+        );
+        persist_setup_checkpoint(
+            &setup_state_store,
+            setup_state_store::SetupCheckpoint::LocalSetupReady,
+            &app_state,
+            false,
+        );
+
         app_state.set_network_phase(frame_core::NetworkPhase::Authorizing);
         ui.sync_state(&app_state)?;
+        local_setup_server.update_state(local_setup_state_from_app(&app_state))?;
         tracing::info!(
             target: "frame_firmware",
             network = app_state.network_phase.as_str(),
             "authorization phase started"
         );
+        persist_setup_checkpoint(
+            &setup_state_store,
+            setup_state_store::SetupCheckpoint::AwaitingBrowserPair,
+            &app_state,
+            false,
+        );
+
+        loop {
+            if local_setup_server.pairing_verified()? {
+                tracing::info!(target: "frame_firmware", "browser pairing verified; requesting Google device code");
+                persist_setup_checkpoint(
+                    &setup_state_store,
+                    setup_state_store::SetupCheckpoint::BrowserPairVerified,
+                    &app_state,
+                    true,
+                );
+                break;
+            }
+
+            std::thread::sleep(std::time::Duration::from_millis(250));
+        }
 
         let auth_response = {
             let _span = tracing::info_span!("device_authorization").entered();
@@ -131,41 +547,85 @@ fn run() -> anyhow::Result<()> {
             auth_response.verification_uri.to_string(),
         );
         ui.sync_state(&app_state)?;
+        local_setup_server.update_state(local_setup_state_from_app(&app_state))?;
         tracing::info!(
             target: "frame_firmware",
             user_code = auth_response.user_code,
             verification_uri = auth_response.verification_uri.as_str(),
             "authorization info updated"
         );
+        persist_setup_checkpoint(
+            &setup_state_store,
+            setup_state_store::SetupCheckpoint::DeviceCodeReady,
+            &app_state,
+            true,
+        );
 
         let token = {
             let _span = tracing::info_span!("device_authorization_poll").entered();
             frame_api::oauth::poll_for_device_authorization(&auth_response)?
         };
-        app_state.clear_auth_info();
-        app_state.set_network_phase(frame_core::NetworkPhase::Connected);
-        ui.sync_state(&app_state)?;
+        complete_owner_sign_in(&mut app_state, &owner_store, &token)?;
+        persist_setup_checkpoint(
+            &setup_state_store,
+            setup_state_store::SetupCheckpoint::AuthorizationComplete,
+            &app_state,
+            true,
+        );
+    } else {
         tracing::info!(
             target: "frame_firmware",
-            access_token = token.access_token,
-            "authorization successful"
+            owner_email = app_state.google_user_email().unwrap_or_default(),
+            "skipping device authorization because owner session was restored"
         );
     }
 
+    app_state.clear_provisioning_details();
+    app_state.clear_auth_info();
+    app_state.set_pairing_code(String::new());
+    app_state.set_network_phase(frame_core::NetworkPhase::Connected);
+    ui.sync_state(&app_state)?;
+    local_setup_server.update_state(local_setup_state_from_app(&app_state))?;
+    tracing::info!(target: "frame_firmware", "authorization state complete");
+    persist_setup_checkpoint(
+        &setup_state_store,
+        setup_state_store::SetupCheckpoint::AuthorizationComplete,
+        &app_state,
+        true,
+    );
+
     if app_state.network_phase == frame_core::NetworkPhase::Connected {
-        let recent_photos = {
-            let _span = tracing::info_span!("photos_bootstrap").entered();
-            photos_client.recent_photos()?
-        };
-        tracing::info!(
-            target: "frame_firmware",
-            count = recent_photos.len(),
-            "photo client returned recent photos"
-        );
+        if let Some(access_token) = app_state.access_token.clone() {
+            let photos_client = frame_api::GooglePhotosClient::new(access_token);
+            match photos_client.list_albums() {
+                Ok(albums) => {
+                    tracing::info!(
+                        target: "frame_firmware",
+                        count = albums.len(),
+                        "photo client returned albums"
+                    );
+                }
+                Err(error) if is_google_photos_scope_error(&error) => {
+                    tracing::warn!(
+                        target: "frame_firmware",
+                        "owner token does not include Google Photos scopes; current setup flow restored identity successfully but browser Photos consent is still missing: {error:#}"
+                    );
+                }
+                Err(error) => return Err(error),
+            }
+        }
+
         app_state.mark_ready();
+        persist_setup_checkpoint(
+            &setup_state_store,
+            setup_state_store::SetupCheckpoint::Ready,
+            &app_state,
+            true,
+        );
     }
 
     ui.sync_state(&app_state)?;
+    local_setup_server.update_state(local_setup_state_from_app(&app_state))?;
     tracing::info!(
         target: "frame_firmware",
         phase = app_state.phase.as_str(),

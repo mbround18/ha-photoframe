@@ -1,0 +1,55 @@
+export component StepCard inherits Rectangle {
+    in property <string> number;
+    in property <string> title;
+    in property <string> body;
+    in property <bool> active;
+    in property <bool> complete;
+
+    height: 100px;
+    border-radius: 20px;
+    background: active ? #1e293b : complete ? #064e3b33 : #0f172a;
+    border-width: 2px;
+    border-color: active ? #38bdf8 : complete ? #10b981 : #1e293b;
+
+    animate background { duration: 300ms; easing: ease-in-out; }
+    animate border-color { duration: 300ms; easing: ease-in-out; }
+
+    HorizontalLayout {
+        padding: 20px;
+        spacing: 20px;
+        alignment: center;
+
+        Rectangle {
+            width: 40px;
+            height: 40px;
+            border-radius: 20px;
+            background: active ? #38bdf8 : complete ? #10b981 : #334155;
+
+            Text {
+                text: complete ? "✓" : number;
+                color: #ffffff;
+                font-size: 18px;
+                font-weight: 800;
+            }
+        }
+
+        VerticalLayout {
+            alignment: center;
+            spacing: 2px;
+
+            Text {
+                text: title;
+                color: active ? #ffffff : #f8fafc;
+                font-size: 20px;
+                font-weight: 700;
+            }
+
+            Text {
+                text: body;
+                color: active ? #bae6fd : #94a3b8;
+                font-size: 14px;
+                wrap: word-wrap;
+            }
+        }
+    }
+}

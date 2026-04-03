@@ -33,10 +33,9 @@ image = { version = "0.25.10", default-features = false, features = ["jpeg"] }
 # component, respectively.
 anyhow = "1.0.102"
 log = "0.4.29"
+qrcodegen = "1.8.0"
 
 [target.'cfg(not(target_os = "espidf"))'.dependencies]
-# Host validation uses Slint's software renderer with std support so UI
-# generation can be exercised without the device.
 slint = { version = "1.15.1", default-features = false, features = [
   "compat-1-2",
   "std",
@@ -44,8 +43,14 @@ slint = { version = "1.15.1", default-features = false, features = [
 ] }
 
 [target.'cfg(target_os = "espidf")'.dependencies]
-# Hardware access will be added back when the board-specific display/input layer
-# is implemented for the target device.
+esp-idf-hal = "0.46.2"
+esp-idf-sys = { version = "0.37.2", default-features = false }
+slint = { version = "1.15.1", default-features = false, features = [
+  "compat-1-2",
+  "renderer-software",
+  "unsafe-single-threaded",
+  "libm",
+] }
 
 [build-dependencies]
 # `slint-build` is the build-time component of Slint. It parses the `.slint`

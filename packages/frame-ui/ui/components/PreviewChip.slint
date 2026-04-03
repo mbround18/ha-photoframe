@@ -1,0 +1,27 @@
+export component PreviewChip inherits Rectangle {
+    in property <string> label;
+    in property <bool> selected;
+    callback tapped();
+
+    height: 32px;
+    border-radius: 12px;
+    background: selected ? #38bdf8 : #1e293b;
+
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        padding-top: 8px;
+        padding-bottom: 8px;
+
+        Text {
+            text: label;
+            color: selected ? #0f172a : #94a3b8;
+            font-weight: 700;
+            font-size: 13px;
+        }
+    }
+
+    TouchArea {
+        clicked => { root.tapped(); }
+    }
+}

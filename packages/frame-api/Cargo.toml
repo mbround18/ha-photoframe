@@ -3,21 +3,13 @@ name = "frame-api"
 version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
+build = "build.rs"
 
 [dependencies]
 # `serde` and `serde_json` are essential for deserializing the JSON responses
 # from the Google Photos REST API into structured Rust types.
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
-
-# The `oauth2` crate provides a robust and type-safe implementation of the
-# OAuth 2.0 protocol. We will use it to handle the Device Authorization Grant
-# flow required for authenticating with Google Photos on a headless device.
-oauth2 = { version = "5.0.0", default-features = false, features = ["reqwest"] }
-
-# `reqwest` is a higher-level HTTP client that we use with `oauth2` to
-# perform the token exchange.
-reqwest = { version = "0.12.5", default-features = false, features = ["blocking", "json"] }
 
 # `dotenvy` is used to load environment variables from a `.env` file, which
 # is where we'll store the Google Photos API client ID and secret.
@@ -32,7 +24,30 @@ anyhow = "1.0.102"
 log = "0.4.29"
 
 # `url` helps in safely constructing and parsing URLs for API requests.
-url = "2.5.8"
+url = { version = "2.5.8", features = ["serde"] }
+async-trait = "0.1.73"
 
 # Shared domain models stay host-testable in `frame-core`.
 frame-core = { path = "../frame-core" }
+
+[target.'cfg(not(target_os = "espidf"))'.dependencies]
+# The `oauth2` crate provides a robust and type-safe implementation of the
+# OAuth 2.0 protocol. Host builds use the crate's reqwest integration.
+oauth2 = { version = "5.0.0", default-features = false, features = [
+  "reqwest",
+  "reqwest-blocking",
+] }
+
+# Host builds use reqwest for Google Photos HTTP calls and OAuth transport.
+reqwest = { version = "0.12.5", default-features = false, features = [
+  "blocking",
+  "json",
+] }
+
+[target.'cfg(target_os = "espidf")'.dependencies]
+embedded-svc = "0.29.0"
+esp-idf-svc = { version = "0.52.1", default-features = false, features = ["alloc"] }
+
+[dev-dependencies]
+wiremock = "0.5"
+tokio = { version = "1", features = ["full"] }

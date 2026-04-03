@@ -64,6 +64,20 @@ dependencies:
       registry_url: https://components.espressif.com/
       type: service
     version: 0.5.3
+  espressif/eppp_link:
+    component_hash: 9472e6825f4bb71eca2b39cf1bc92659c1ac60bfd7416560ad033a7dd8641b17
+    dependencies:
+    - name: espressif/esp_serial_slave_link
+      registry_url: https://components.espressif.com
+      require: private
+      version: ^1.1.0
+    - name: idf
+      require: private
+      version: '>=5.2'
+    source:
+      registry_url: https://components.espressif.com
+      type: service
+    version: 1.1.4
   espressif/esp32_p4_function_ev_board:
     dependencies:
     - name: espressif/esp_codec_dev
@@ -115,6 +129,16 @@ dependencies:
     - esp32s3
     - esp32p4
     version: 1.3.0
+  espressif/esp_hosted:
+    component_hash: e23eb702781c804a62909e5394da0641a2bff9adccec6673a7bff60ce8c8b756
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.3'
+    source:
+      registry_url: https://components.espressif.com
+      type: service
+    version: 2.12.3
   espressif/esp_ipa:
     component_hash: 7547b050a99351a85aaba8ba38211c36fd4769c2ae3e570fa330dc90dfd2704c
     dependencies:
@@ -207,6 +231,60 @@ dependencies:
       registry_url: https://components.espressif.com/
       type: service
     version: 0.0.8
+  espressif/esp_serial_slave_link:
+    component_hash: ac1776806de0a6e371c84e87898bb983e19ce62aa7f1e2e5c4a3b0234a575d2c
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.0'
+    source:
+      registry_url: https://components.espressif.com
+      type: service
+    version: 1.1.2
+  espressif/esp_wifi_remote:
+    component_hash: 4bd046a7474454fcac858bd5e689a0e401dda8df21a5abba175d4ebd1205254c
+    dependencies:
+    - name: espressif/esp_hosted
+      registry_url: https://components.espressif.com
+      require: private
+      rules:
+      - if: target in [esp32h2, esp32p4]
+      version: '>=2.11'
+    - name: espressif/wifi_remote_over_eppp
+      registry_url: https://components.espressif.com
+      require: private
+      version: '>=0.1'
+    - name: idf
+      require: private
+      version: '>=5.3'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.4.2
+  espressif/mdns:
+    component_hash: 3ec0af5f6bce310512e90f482388d21cc7c0e99668172d2f895356165fc6f7c5
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.0'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.8.2
+  espressif/wifi_remote_over_eppp:
+    component_hash: 06d8bc15348bbd21f1390daace36ed5adcf6026c93c5b69decc55fa04df2711a
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.3'
+    - name: espressif/eppp_link
+      registry_url: https://components.espressif.com
+      require: private
+      version: '>=0.1'
+    source:
+      registry_url: https://components.espressif.com
+      type: service
+    version: 0.3.2
   idf:
     source:
       type: idf
@@ -235,8 +313,10 @@ direct_dependencies:
 - espressif/esp_lcd_touch_gt911
 - espressif/esp_lvgl_port
 - espressif/esp_sccb_intf
+- espressif/esp_wifi_remote
+- espressif/mdns
 - idf
 - lvgl/lvgl
-manifest_hash: 6b4f18cfac6c914dddbdb51b297c3feba84a361f9a675cbd15c77838fddcd496
+manifest_hash: cf48f33232f6d474a4c74260ec809dfef97382575d8b512fad1cbd9903274fbc
 target: esp32p4
 version: 2.0.0
