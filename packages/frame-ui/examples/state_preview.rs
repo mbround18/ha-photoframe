@@ -1,7 +1,7 @@
 use anyhow::Result;
 use frame_core::models::GoogleUser;
 use frame_core::{AppPhase, AppState, NetworkPhase};
-use frame_ui::{sync_window_state, MainWindow};
+use frame_ui::{MainWindow, sync_window_state};
 use slint::ComponentHandle;
 
 fn preview_state(screen: &str) -> AppState {
@@ -17,8 +17,8 @@ fn preview_state(screen: &str) -> AppState {
             state.begin_setup();
             state.set_network_phase(NetworkPhase::Connected);
             state.set_local_setup_details(
-                "frame.local",
-                Some("http://frame.local".to_string()),
+                "192.168.1.44",
+                Some("http://192.168.1.44".to_string()),
                 Some("http://192.168.1.44".to_string()),
             );
             state.set_pairing_code("482731");
@@ -27,8 +27,8 @@ fn preview_state(screen: &str) -> AppState {
             state.begin_setup();
             state.set_network_phase(NetworkPhase::Authorizing);
             state.set_local_setup_details(
-                "frame.local",
-                Some("http://frame.local".to_string()),
+                "192.168.1.44",
+                Some("http://192.168.1.44".to_string()),
                 Some("http://192.168.1.44".to_string()),
             );
             state.set_pairing_code("482731");
@@ -43,8 +43,8 @@ fn preview_state(screen: &str) -> AppState {
                 refresh_token: "sample-token".to_string(),
             });
             state.set_local_setup_details(
-                "frame.local",
-                Some("http://frame.local".to_string()),
+                "192.168.1.44",
+                Some("http://192.168.1.44".to_string()),
                 Some("http://192.168.1.44".to_string()),
             );
             state.mark_ready();

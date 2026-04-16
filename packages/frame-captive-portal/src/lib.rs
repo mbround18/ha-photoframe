@@ -1,4 +1,5 @@
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
+use frame_api::oauth::DeviceAccessToken;
 use serde::Serialize;
 use std::sync::{Arc, Mutex};
 
@@ -45,6 +46,18 @@ struct LocalSetupSession {
     setup: LocalSetupState,
     pairing_verified: bool,
     pairing_error: Option<String>,
+    browser_auth: BrowserAuthSession,
+}
+
+#[cfg_attr(not(target_os = "espidf"), allow(dead_code))]
+#[derive(Clone, Debug, Default)]
+struct BrowserAuthSession {
+    authorization_url: Option<String>,
+    redirect_uri: Option<String>,
+    state: Option<String>,
+    pkce_verifier: Option<String>,
+    access_token: Option<DeviceAccessToken>,
+    error: Option<String>,
 }
 
 #[cfg(target_os = "espidf")]
@@ -58,8 +71,9 @@ struct LocalSetupStatusResponse {
     pairing_error: Option<String>,
     local_setup_url: Option<String>,
     local_setup_ip_url: Option<String>,
-    auth_verification_uri: Option<String>,
-    auth_user_code: Option<String>,
+    browser_auth_url: Option<String>,
+    browser_auth_error: Option<String>,
+    browser_auth_pending: bool,
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -72,6 +86,8 @@ pub struct LocalSetupState {
     pub local_setup_ip_url: Option<String>,
     pub auth_verification_uri: Option<String>,
     pub auth_user_code: Option<String>,
+    pub device_id: Option<String>,
+    pub device_name: Option<String>,
 }
 
 pub struct CaptivePortal {
@@ -330,6 +346,14 @@ impl LocalSetupServer {
         Ok(guard.pairing_verified)
     }
 
+    pub fn take_browser_access_token(&mut self) -> Result<Option<DeviceAccessToken>> {
+        let mut guard = self
+            .state
+            .lock()
+            .map_err(|_| anyhow!("local setup state lock poisoned"))?;
+        Ok(guard.browser_auth.access_token.take())
+    }
+
     #[cfg(not(target_os = "espidf"))]
     pub fn start(&mut self) -> Result<()> {
         Ok(())
@@ -403,6 +427,48 @@ impl LocalSetupServer {
             Ok(())
         })?;
 
+        let state = Arc::clone(&self.state);
+        server.fn_handler("/oauth/start", Method::Get, move |request| -> Result<()> {
+            let authorization_url = {
+                let mut guard = state
+                    .lock()
+                    .map_err(|_| anyhow!("local setup state lock poisoned"))?;
+                prepare_browser_authorization(&mut guard)?
+            };
+
+            let mut response = request.into_response(
+                302,
+                Some("Found"),
+                &[
+                    ("Location", authorization_url.as_str()),
+                    ("Cache-Control", "no-store"),
+                ],
+            )?;
+            response.write_all(&[])?;
+            Ok(())
+        })?;
+
+        let state = Arc::clone(&self.state);
+        server.fn_handler(
+            "/oauth/callback",
+            Method::Get,
+            move |request| -> Result<()> {
+                let request_uri = request.uri().to_string();
+                let body = {
+                    let mut guard = state
+                        .lock()
+                        .map_err(|_| anyhow!("local setup state lock poisoned"))?;
+                    finish_browser_authorization(&mut guard, &request_uri);
+                    render_browser_callback_html(&guard)
+                };
+
+                let mut response =
+                    request.into_response(200, Some("OK"), &[("Content-Type", "text/html")])?;
+                response.write_all(body.as_bytes())?;
+                Ok(())
+            },
+        )?;
+
         self.server = Some(server);
         Ok(())
     }
@@ -419,14 +485,12 @@ fn local_setup_status_response(session: &LocalSetupSession) -> LocalSetupStatusR
         pairing_error: session.pairing_error.clone(),
         local_setup_url: session.setup.local_setup_url.clone(),
         local_setup_ip_url: session.setup.local_setup_ip_url.clone(),
-        auth_verification_uri: session
+        browser_auth_url: session
             .pairing_verified
-            .then(|| session.setup.auth_verification_uri.clone())
-            .flatten(),
-        auth_user_code: session
-            .pairing_verified
-            .then(|| session.setup.auth_user_code.clone())
-            .flatten(),
+            .then_some("/oauth/start".to_string()),
+        browser_auth_error: session.browser_auth.error.clone(),
+        browser_auth_pending: session.browser_auth.authorization_url.is_some()
+            && session.browser_auth.access_token.is_none(),
     }
 }
 
@@ -443,15 +507,10 @@ fn render_local_setup_html(session: &LocalSetupSession) -> String {
         .as_deref()
         .unwrap_or("Unavailable");
     let sign_in_url = session
-        .setup
-        .auth_verification_uri
+        .browser_auth
+        .authorization_url
         .as_deref()
-        .unwrap_or("Waiting for Google sign-in URL...");
-    let user_code = session
-        .setup
-        .auth_user_code
-        .as_deref()
-        .unwrap_or("Waiting for device code...");
+        .unwrap_or("/oauth/start");
     let owner_ready = session
         .setup
         .owner_email
@@ -461,13 +520,13 @@ fn render_local_setup_html(session: &LocalSetupSession) -> String {
     let badge = if owner_ready {
         "All set"
     } else if session.pairing_verified {
-        "Google sign-in"
+        "Google Photos"
     } else {
         "Local setup"
     };
     let pairing_state_html = render_pairing_state_html(session);
-    let top_action_html = render_top_action_html(session, sign_in_url, user_code);
-    let google_sign_in_html = render_google_sign_in_html(session, sign_in_url, user_code);
+    let top_action_html = render_top_action_html(session, sign_in_url);
+    let google_sign_in_html = render_google_sign_in_html(session, sign_in_url);
     let album_selection_html = render_album_selection_html(session);
     let owner_html = session
         .setup
@@ -481,8 +540,12 @@ fn render_local_setup_html(session: &LocalSetupSession) -> String {
             )
         })
         .unwrap_or_default();
-        let owner_display = if owner_html.is_empty() { "none" } else { "block" };
-        let script = render_local_setup_poll_script();
+    let owner_display = if owner_html.is_empty() {
+        "none"
+    } else {
+        "block"
+    };
+    let script = render_local_setup_poll_script();
 
     format!(
                 "<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Photo Frame Local Setup</title><style>:root{{color-scheme:dark;--bg:#09111d;--panel:#0d1728;--panel-strong:#10253a;--panel-soft:#10192a;--border:#27415d;--tile-border:#243247;--text:#f8fafc;--muted:#b8c6d8;--subtle:#9fb2c7;--accent:#7dd3fc;--accent-soft:#14304a;--good:#34d399;--danger:#fca5a5;--warn:#fbbf24}}*{{box-sizing:border-box}}body{{margin:0;padding:20px;font-family:'Avenir Next','Segoe UI Variable','Segoe UI',sans-serif;background:radial-gradient(circle at top left,#14304a 0,transparent 28%),radial-gradient(circle at bottom right,#0f3b38 0,transparent 24%),var(--bg);color:var(--text)}}main{{width:min(100%,72rem);margin:0 auto}}.hero{{padding:28px;border-radius:30px;border:1px solid var(--border);background:linear-gradient(180deg,var(--panel-strong),var(--panel));box-shadow:0 24px 60px rgba(0,0,0,.32)}}.badge{{display:inline-flex;padding:8px 14px;border-radius:999px;background:var(--accent-soft);color:#dbeafe;font-size:.82rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase}}h1{{margin:16px 0 10px;font-size:clamp(2rem,6vw,3.25rem);line-height:1.02}}.hero p{{margin:0;color:var(--muted);max-width:56rem;line-height:1.6}}.hero-actions{{margin-top:18px;display:grid;gap:12px}}.hero-callout{{padding:18px 20px;border-radius:22px;border:1px solid rgba(125,211,252,.22);background:rgba(9,17,29,.42)}}.hero-callout.hidden{{display:none}}.hero-callout-title{{margin:0 0 8px;color:#dbeafe;font-size:1rem;font-weight:800}}.hero-callout-body{{margin:0;color:var(--muted);line-height:1.6}}.hero-link{{display:inline-flex;align-items:center;justify-content:center;padding:14px 18px;border-radius:14px;background:var(--accent);color:#0b1220;font-weight:800;text-decoration:none}}.grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;margin-top:20px}}.tile{{padding:22px;border-radius:24px;border:1px solid var(--tile-border);background:rgba(13,23,40,.92)}}.tile-wide{{grid-column:1 / -1}}.hidden{{display:none}}.album-shell{{display:grid;gap:14px}}.album-shell-card{{padding:18px;border-radius:18px;border:1px solid rgba(251,191,36,.2);background:rgba(9,17,29,.45)}}.album-shell-card strong{{display:block;margin-bottom:6px;color:#fde68a}}h2{{margin:0 0 10px;color:var(--accent);font-size:.92rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase}}.tile-copy{{margin:0;color:var(--muted);line-height:1.6}}.value{{margin:0 0 8px;font-size:1.5rem;font-weight:700;color:var(--text);line-height:1.2}}code{{font-family:'IBM Plex Mono','SFMono-Regular',monospace;background:#020617;padding:3px 7px;border-radius:8px;color:#e2e8f0}}.pair-form{{margin-top:14px;display:flex;flex-wrap:wrap;gap:12px;align-items:end}}label{{display:block;color:#dbe4f0;font-weight:700}}input{{display:block;width:min(100%,18rem);padding:14px 16px;border-radius:14px;border:1px solid #334155;background:#020617;color:#f8fafc;font-size:1rem}}button{{padding:14px 18px;border-radius:14px;border:0;background:var(--accent);color:#0b1220;font-weight:800;cursor:pointer}}.code{{margin:12px 0 8px;font-size:clamp(2rem,7vw,3rem);font-weight:800;letter-spacing:.08em;color:var(--accent)}}.error{{margin:12px 0 0;color:var(--danger);line-height:1.5}}.success{{color:var(--good)}}@media (max-width: 760px){{body{{padding:14px}}.hero{{padding:22px}}.grid{{grid-template-columns:1fr}}.pair-form{{flex-direction:column;align-items:stretch}}input{{width:100%}}button{{width:100%}}.hero-link{{width:100%}}}}</style></head><body><main><section class='hero'><div class='badge' id='badge'>{badge}</div><h1 id='status'>{status}</h1><p id='detail'>{detail}</p><div class='hero-actions'>{top_action_html}</div></section><div class='grid'><section class='tile'><h2>Pass code</h2><div id='pairing-state'>{pairing_state_html}</div></section><section class='tile'><h2>Browser address</h2><p class='value'><code id='local-url'>{local_url}</code></p><p class='tile-copy'>Fallback IP: <code id='ip-url'>{ip_url}</code></p></section><section class='tile' id='owner-tile' style='display:{owner_display}'><h2>Owner</h2><p class='tile-copy'>Signed in as <strong id='owner-email'>{owner_email}</strong>.</p></section><section class='tile'><h2>State summary</h2><p class='value' id='summary-status'>{status}</p><p class='tile-copy' id='summary-detail'>{detail}</p></section>{google_sign_in_html}{album_selection_html}</div></main>{script}</body></html>",
@@ -503,14 +566,18 @@ fn render_local_setup_html(session: &LocalSetupSession) -> String {
 
 #[cfg(target_os = "espidf")]
 fn render_pairing_state_html(session: &LocalSetupSession) -> String {
-        if session.pairing_verified {
-                return "<p class='tile-copy'>This browser is verified against the pass code currently shown on the frame.</p>".to_string();
-        }
+    if session.pairing_verified {
+        return "<p class='tile-copy'>This browser is verified against the pass code currently shown on the frame.</p>".to_string();
+    }
 
-        let error_display = if session.pairing_error.is_some() { "block" } else { "none" };
-        let error_text = escape_html(session.pairing_error.as_deref().unwrap_or(""));
+    let error_display = if session.pairing_error.is_some() {
+        "block"
+    } else {
+        "none"
+    };
+    let error_text = escape_html(session.pairing_error.as_deref().unwrap_or(""));
 
-        format!(
+    format!(
                 "<p class='tile-copy'>Enter the pass code shown on the frame. That code never appears on this webpage, which keeps nearby setup private.</p><p class='error' id='pairing-error' style='display:{error_display}'>{error_text}</p><form class='pair-form' method='post' action='/pair'><label for='pairing_code'>Pass code</label><input id='pairing_code' name='pairing_code' type='text' inputmode='numeric' autocomplete='one-time-code' maxlength='6' placeholder='Enter pass code from frame' required><button type='submit'>Validate this browser</button></form>",
                 error_display = error_display,
                 error_text = error_text,
@@ -518,69 +585,86 @@ fn render_pairing_state_html(session: &LocalSetupSession) -> String {
 }
 
 #[cfg(target_os = "espidf")]
-fn render_top_action_html(session: &LocalSetupSession, sign_in_url: &str, user_code: &str) -> String {
-        let callout_class = if session.pairing_verified { "hero-callout" } else { "hero-callout hidden" };
-        let waiting_class = if session.pairing_verified && session.setup.auth_verification_uri.is_none() {
-                "hero-callout-body"
+fn render_top_action_html(session: &LocalSetupSession, sign_in_url: &str) -> String {
+    let callout_class = if session.pairing_verified {
+        "hero-callout"
+    } else {
+        "hero-callout hidden"
+    };
+    let waiting_class =
+        if session.pairing_verified && session.browser_auth.authorization_url.is_none() {
+            "hero-callout-body"
         } else {
-                "hero-callout-body hidden"
+            "hero-callout-body hidden"
         };
-        let link_class = if session.pairing_verified && session.setup.auth_verification_uri.is_some() {
-                "hero-link"
-        } else {
-                "hero-link hidden"
-        };
-        let code_class = if session.pairing_verified && session.setup.auth_user_code.is_some() {
-                "code"
-        } else {
-                "code hidden"
-        };
+    let link_class = if session.pairing_verified {
+        "hero-link"
+    } else {
+        "hero-link hidden"
+    };
+    let error_html = session
+        .browser_auth
+        .error
+        .as_deref()
+        .map(|message| {
+            format!(
+                "<p id='google-error' class='error'>{}</p>",
+                escape_html(message)
+            )
+        })
+        .unwrap_or_default();
 
-        format!(
-                "<section id='google-cta' class='{callout_class}'><p class='hero-callout-title'>Next step</p><p id='google-cta-copy' class='hero-callout-body'>Open the Google device page below and enter the code shown here.</p><a id='google-link' class='{link_class}' href='{href}' target='_blank' rel='noreferrer'>Open google.com/device</a><p id='google-waiting' class='{waiting_class}'>Preparing the Google sign-in link and device code now that this browser is verified.</p><p id='google-code' class='{code_class}'>{user_code}</p><p id='google-url-note' class='tile-copy hidden'>{url_text}</p></section>",
+    format!(
+        "<section id='google-cta' class='{callout_class}'><p class='hero-callout-title'>Next step</p><p id='google-cta-copy' class='hero-callout-body'>Continue in this verified browser to approve Google Photos access for this frame.</p><a id='google-link' class='{link_class}' href='{href}'>Continue with Google Photos</a><p id='google-waiting' class='{waiting_class}'>Waiting for this browser to start Google Photos consent.</p>{error_html}</section>",
                 callout_class = callout_class,
                 link_class = link_class,
                 waiting_class = waiting_class,
-                code_class = code_class,
                 href = escape_html(sign_in_url),
-                user_code = escape_html(user_code),
-                url_text = escape_html(sign_in_url),
+        error_html = error_html,
         )
 }
 
 #[cfg(target_os = "espidf")]
-fn render_google_sign_in_html(session: &LocalSetupSession, sign_in_url: &str, user_code: &str) -> String {
-    if session.setup.owner_email.as_deref().is_some_and(|value| !value.is_empty()) {
+fn render_google_sign_in_html(session: &LocalSetupSession, sign_in_url: &str) -> String {
+    if session
+        .setup
+        .owner_email
+        .as_deref()
+        .is_some_and(|value| !value.is_empty())
+    {
         return String::new();
     }
 
-        if session.pairing_verified {
-                return format!(
-                        "<section class='tile tile-wide' id='google-sign-in-tile'><h2>Google sign-in</h2><p class='tile-copy'>Open <a id='google-device-link-inline' href='{href}' target='_blank' rel='noreferrer'>{href_text}</a> on another device and enter this code.</p><p class='code' id='google-code-tile'>{code}</p><p class='tile-copy'>Approval will sync back here automatically.</p></section>",
+    if session.pairing_verified {
+        return format!(
+            "<section class='tile tile-wide' id='google-sign-in-tile'><h2>Google Photos access</h2><p class='tile-copy'>This browser is verified. Open <a id='google-device-link-inline' href='{href}'>the Google consent step</a> here, approve Photos access, and the frame will pick it up automatically.</p><p class='tile-copy'>If Google returns to this page with an error, you can retry the consent step without restarting the frame.</p></section>",
                         href = escape_html(sign_in_url),
-                        href_text = escape_html(sign_in_url),
-                        code = escape_html(user_code),
                 );
-        }
+    }
 
-        "<section class='tile tile-wide' id='google-sign-in-tile'><h2>Google sign-in</h2><p class='tile-copy'>Google sign-in stays hidden until this browser proves it can see the pass code shown on the frame.</p></section>".to_string()
+    "<section class='tile tile-wide' id='google-sign-in-tile'><h2>Google Photos access</h2><p class='tile-copy'>Google consent stays hidden until this browser proves it can see the pass code shown on the frame.</p></section>".to_string()
 }
 
 #[cfg(target_os = "espidf")]
 fn render_album_selection_html(session: &LocalSetupSession) -> String {
-    let Some(owner_email) = session.setup.owner_email.as_deref().filter(|value| !value.is_empty()) else {
+    let Some(owner_email) = session
+        .setup
+        .owner_email
+        .as_deref()
+        .filter(|value| !value.is_empty())
+    else {
         return String::new();
     };
 
     format!(
-        "<section class='tile tile-wide' id='album-selection-tile'><h2>Choose album</h2><div class='album-shell'><p class='tile-copy'>The frame is signed in as <strong>{owner_email}</strong>, but the current invite and device-code handoff only linked identity. It did not request Google Photos library access.</p><div class='album-shell-card'><strong>What should happen here</strong><p class='tile-copy'>Open a browser-only Google Photos consent flow, then show your albums and let you pick the one this frame should display.</p></div><div class='album-shell-card'><strong>What is still missing</strong><p class='tile-copy'>Google's limited-input device flow only grants `openid`, `email`, and `profile`, so `ListAlbums` fails with an insufficient-scope error. A separate browser Photos-consent step still needs to be implemented before a real album picker can appear here.</p></div></div></section>",
+        "<section class='tile tile-wide' id='album-selection-tile'><h2>Choose album</h2><div class='album-shell'><p class='tile-copy'>The frame is signed in as <strong>{owner_email}</strong>. Browser-based Photos consent is now wired into setup, but the album picker itself is still the next implementation step.</p><div class='album-shell-card'><strong>What happens next</strong><p class='tile-copy'>The frame can now complete browser consent on-device and persist the resulting owner token. The next slice will use that Photos-scoped token to list albums here.</p></div></div></section>",
         owner_email = escape_html(owner_email),
     )
 }
 
 #[cfg(target_os = "espidf")]
 fn render_local_setup_poll_script() -> &'static str {
-        r#"<script>
+    r#"<script>
 const escapeHtml = (value) => String(value ?? '')
     .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')
@@ -605,13 +689,10 @@ function updateGoogleCallout(data) {
     const callout = document.getElementById('google-cta');
     const link = document.getElementById('google-link');
     const waiting = document.getElementById('google-waiting');
-    const code = document.getElementById('google-code');
     const copy = document.getElementById('google-cta-copy');
-    const inlineLink = document.getElementById('google-device-link-inline');
     const tile = document.getElementById('google-sign-in-tile');
-    const tileCode = document.getElementById('google-code-tile');
 
-    if (!callout || !waiting || !code || !copy || !tile) return;
+    if (!callout || !waiting || !copy || !tile) return;
 
     if (data.owner_email) {
         callout.className = 'hero-callout hidden';
@@ -630,26 +711,31 @@ function updateGoogleCallout(data) {
     }
 
     callout.className = 'hero-callout';
-    copy.textContent = 'Open the Google device page below and enter the code shown here.';
+    copy.textContent = 'Continue in this verified browser to approve Google Photos access for this frame.';
 
-    if (data.auth_verification_uri) {
+    if (data.browser_auth_url) {
         link.className = 'hero-link';
-        link.href = data.auth_verification_uri;
+        link.href = data.browser_auth_url;
         waiting.className = 'hero-callout-body hidden';
-        tile.innerHTML = `<h2>Google sign-in</h2><p class='tile-copy'>Open <a id='google-device-link-inline' href='${escapeHtml(data.auth_verification_uri)}' target='_blank' rel='noreferrer'>${escapeHtml(data.auth_verification_uri)}</a> on another device and enter this code.</p><p class='code' id='google-code-tile'>${escapeHtml(data.auth_user_code || 'Waiting for device code...')}</p><p class='tile-copy'>Approval will sync back here automatically.</p>`;
+        tile.innerHTML = `<h2>Google Photos access</h2><p class='tile-copy'>This browser is verified. Open <a id='google-device-link-inline' href='${escapeHtml(data.browser_auth_url)}'>the Google consent step</a> here, approve Photos access, and the frame will pick it up automatically.</p><p class='tile-copy'>If Google returns to this page with an error, you can retry the consent step without restarting the frame.</p>`;
     } else {
         link.className = 'hero-link hidden';
         link.removeAttribute('href');
         waiting.className = 'hero-callout-body';
-        tile.innerHTML = "<h2>Google sign-in</h2><p class='tile-copy'>This browser is verified. Waiting for the frame to request a Google device code.</p>";
+        tile.innerHTML = "<h2>Google Photos access</h2><p class='tile-copy'>This browser is verified. Waiting for Google Photos consent to become available.</p>";
     }
 
-    if (data.auth_user_code) {
-        code.className = 'code';
-        code.textContent = data.auth_user_code;
-    } else {
-        code.className = 'code hidden';
-        code.textContent = '';
+    let error = document.getElementById('google-error');
+    if (data.browser_auth_error) {
+        if (!error) {
+            error = document.createElement('p');
+            error.id = 'google-error';
+            error.className = 'error';
+            callout.appendChild(error);
+        }
+        error.textContent = data.browser_auth_error;
+    } else if (error) {
+        error.remove();
     }
 }
 
@@ -734,6 +820,7 @@ fn validate_pairing_code(
 
     if expected_code.is_empty() {
         session.pairing_verified = false;
+        session.browser_auth = BrowserAuthSession::default();
         session.pairing_error = Some(
             "The frame has not generated a pairing code yet. Wait for the device UI to finish loading."
                 .to_string(),
@@ -743,8 +830,159 @@ fn validate_pairing_code(
         session.pairing_error = None;
     } else {
         session.pairing_verified = false;
+        session.browser_auth = BrowserAuthSession::default();
         session.pairing_error = Some(invalid_message.to_string());
     }
+}
+
+#[cfg(target_os = "espidf")]
+fn prepare_browser_authorization(session: &mut LocalSetupSession) -> Result<String> {
+    if !session.pairing_verified {
+        anyhow::bail!("browser pairing must be verified before starting Google Photos consent");
+    }
+
+    let redirect_uri = frame_api::oauth::resolve_browser_redirect_uri(
+        session.setup.local_setup_url.as_deref(),
+        session.setup.local_setup_ip_url.as_deref(),
+    )?;
+    let device_id = session
+        .setup
+        .device_id
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .context("browser OAuth device_id is missing from local setup state")?;
+    let device_name = session
+        .setup
+        .device_name
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .context("browser OAuth device_name is missing from local setup state")?;
+    let request = frame_api::oauth::build_browser_authorization_request(
+        &redirect_uri,
+        device_id,
+        device_name,
+    )?;
+
+    session.browser_auth = BrowserAuthSession {
+        authorization_url: Some(request.authorization_url.to_string()),
+        redirect_uri: Some(request.redirect_uri.to_string()),
+        state: Some(request.state),
+        pkce_verifier: Some(request.pkce_verifier),
+        access_token: None,
+        error: None,
+    };
+
+    Ok(session
+        .browser_auth
+        .authorization_url
+        .clone()
+        .unwrap_or_default())
+}
+
+#[cfg(target_os = "espidf")]
+fn finish_browser_authorization(session: &mut LocalSetupSession, request_uri: &str) {
+    let Some((_, query)) = request_uri.split_once('?') else {
+        session.browser_auth.error =
+            Some("Google consent callback arrived without any query parameters.".to_string());
+        return;
+    };
+
+    let params = parse_form_encoded(query);
+    if let Some(error) = params.get("error") {
+        session.browser_auth.access_token = None;
+        session.browser_auth.error = Some(format!(
+            "Google Photos consent was not completed: {}",
+            error.replace('_', " ")
+        ));
+        return;
+    }
+
+    let Some(expected_state) = session.browser_auth.state.as_deref() else {
+        session.browser_auth.error = Some(
+            "Google consent returned, but the local setup session no longer has an active authorization request. Start the consent step again from the frame page."
+                .to_string(),
+        );
+        return;
+    };
+    let Some(received_state) = params.get("state").map(String::as_str) else {
+        session.browser_auth.error =
+            Some("Google consent callback was missing the OAuth state parameter.".to_string());
+        return;
+    };
+    if received_state != expected_state {
+        session.browser_auth.access_token = None;
+        session.browser_auth.error = Some("Google consent callback did not match the active local setup session. Start the consent step again from the frame page.".to_string());
+        return;
+    }
+
+    let Some(code) = params.get("code").map(String::as_str) else {
+        session.browser_auth.error =
+            Some("Google consent callback was missing the authorization code.".to_string());
+        return;
+    };
+    let Some(redirect_uri) = session.browser_auth.redirect_uri.as_deref() else {
+        session.browser_auth.error =
+            Some("Google consent callback could not be matched to a redirect URI.".to_string());
+        return;
+    };
+    let Some(pkce_verifier) = session.browser_auth.pkce_verifier.as_deref() else {
+        session.browser_auth.error = Some(
+            "Google consent callback could not be matched to the active PKCE verifier.".to_string(),
+        );
+        return;
+    };
+
+    let redirect_uri = match url::Url::parse(redirect_uri) {
+        Ok(uri) => uri,
+        Err(error) => {
+            session.browser_auth.error = Some(format!(
+                "Stored browser OAuth redirect URI is invalid: {error}"
+            ));
+            return;
+        }
+    };
+
+    match frame_api::oauth::exchange_browser_authorization_code(&redirect_uri, code, pkce_verifier)
+    {
+        Ok(token) => {
+            session.browser_auth.access_token = Some(token);
+            session.browser_auth.authorization_url = None;
+            session.browser_auth.state = None;
+            session.browser_auth.pkce_verifier = None;
+            session.browser_auth.error = None;
+        }
+        Err(error) => {
+            session.browser_auth.access_token = None;
+            session.browser_auth.error = Some(format!(
+                "Google Photos consent callback reached the frame, but exchanging the authorization code failed: {error:#}"
+            ));
+        }
+    }
+}
+
+#[cfg(target_os = "espidf")]
+fn render_browser_callback_html(session: &LocalSetupSession) -> String {
+    let (title, detail) = if session.browser_auth.access_token.is_some() {
+        (
+            "Google Photos connected",
+            "This browser finished consent successfully. You can return to the frame page while the device completes setup.",
+        )
+    } else {
+        (
+            "Google Photos connection incomplete",
+            session
+                .browser_auth
+                .error
+                .as_deref()
+                .unwrap_or("Google consent did not complete successfully. Return to the frame page and retry the consent step."),
+        )
+    };
+
+    format!(
+        "<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>{title}</title><style>:root{{color-scheme:dark;--bg:#09111d;--panel:#0d1728;--border:#27415d;--text:#f8fafc;--muted:#b8c6d8;--accent:#7dd3fc}}*{{box-sizing:border-box}}body{{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;font-family:'Avenir Next','Segoe UI Variable','Segoe UI',sans-serif;background:radial-gradient(circle at top left,#14304a 0,transparent 28%),radial-gradient(circle at bottom right,#0f3b38 0,transparent 24%),var(--bg);color:var(--text)}}main{{width:min(100%,34rem);padding:28px;border-radius:28px;border:1px solid var(--border);background:linear-gradient(180deg,#10253a,#0d1728)}}h1{{margin:0 0 10px;font-size:2rem}}p{{margin:0;color:var(--muted);line-height:1.6}}a{{display:inline-flex;margin-top:18px;padding:14px 18px;border-radius:14px;background:var(--accent);color:#0b1220;text-decoration:none;font-weight:800}}</style></head><body><main><h1>{title}</h1><p>{detail}</p><a href='/'>Return to the frame</a></main></body></html>",
+        title = escape_html(title),
+        detail = escape_html(detail),
+    )
 }
 
 #[cfg(target_os = "espidf")]

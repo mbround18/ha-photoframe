@@ -216,8 +216,8 @@ impl GooglePhotosClient {
             crt_bundle_attach: Some(esp_idf_svc::sys::esp_crt_bundle_attach),
             ..Default::default()
         };
-        let connection =
-            EspHttpConnection::new(&http_config).context("failed to build Google Photos HTTP client")?;
+        let connection = EspHttpConnection::new(&http_config)
+            .context("failed to build Google Photos HTTP client")?;
         let mut client = HttpClient::wrap(connection);
 
         let authorization = format!("Bearer {}", self.access_token);
@@ -285,4 +285,3 @@ impl crate::transport::PhotosClient for GooglePhotosClient {
         self.list_recent_photos()
     }
 }
-

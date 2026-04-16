@@ -1,5 +1,5 @@
-use frame_core::models::PhotoMetadata;
 use crate::client::GooglePhotosClient;
+use frame_core::models::PhotoMetadata;
 
 #[async_trait::async_trait]
 pub trait PhotosClient {

@@ -1,6 +1,6 @@
 use frame_api::client::GooglePhotosClient;
-use wiremock::{Mock, MockServer, ResponseTemplate};
 use wiremock::matchers::{method, path};
+use wiremock::{Mock, MockServer, ResponseTemplate};
 
 #[tokio::test]
 async fn test_list_albums() {

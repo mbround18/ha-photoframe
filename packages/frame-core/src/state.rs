@@ -53,6 +53,8 @@ pub struct AppState {
     pub local_setup_url: Option<String>,
     pub local_setup_ip_url: Option<String>,
     pub pairing_code: Option<String>,
+    pub device_id: Option<String>,
+    pub device_name: Option<String>,
 }
 
 impl AppState {
@@ -73,6 +75,8 @@ impl AppState {
             local_setup_url: None,
             local_setup_ip_url: None,
             pairing_code: None,
+            device_id: None,
+            device_name: None,
         }
     }
 
@@ -152,6 +156,15 @@ impl AppState {
 
     pub fn set_pairing_code(&mut self, pairing_code: impl Into<String>) {
         self.pairing_code = Some(pairing_code.into());
+    }
+
+    pub fn set_device_identity(
+        &mut self,
+        device_id: impl Into<String>,
+        device_name: impl Into<String>,
+    ) {
+        self.device_id = Some(device_id.into());
+        self.device_name = Some(device_name.into());
     }
 
     pub fn clear_auth_info(&mut self) {

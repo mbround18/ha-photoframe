@@ -1,6 +1,4 @@
 fn main() {
-    println!("cargo:rustc-check-cfg=cfg(esp_idf_comp_mdns_enabled)");
-    println!("cargo:rustc-check-cfg=cfg(esp_idf_comp_espressif__mdns_enabled)");
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=components/frame_embedded_ui/CMakeLists.txt");
     println!("cargo:rerun-if-changed=components/frame_embedded_ui/frame_embedded_ui.c");

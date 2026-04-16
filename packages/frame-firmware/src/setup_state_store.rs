@@ -12,7 +12,7 @@ const KEY_SETUP_STATE: &str = "checkpoint";
 #[cfg(target_os = "espidf")]
 const STATE_MAGIC: [u8; 4] = *b"FSTS";
 #[cfg(target_os = "espidf")]
-const STATE_VERSION: u8 = 1;
+const STATE_VERSION: u8 = 2;
 #[cfg(target_os = "espidf")]
 const STATE_RECORD_LEN: usize = 9;
 
@@ -41,8 +41,10 @@ pub enum SetupCheckpoint {
     AwaitingBrowserPair = 8,
     BrowserPairVerified = 9,
     DeviceCodeReady = 10,
-    AuthorizationComplete = 11,
-    Ready = 12,
+    BrowserOAuthReady = 11,
+    BrowserOAuthCallbackReceived = 12,
+    AuthorizationComplete = 13,
+    Ready = 14,
 }
 
 #[cfg(target_os = "espidf")]
@@ -59,6 +61,8 @@ impl SetupCheckpoint {
             Self::AwaitingBrowserPair => "awaiting-browser-pair",
             Self::BrowserPairVerified => "browser-pair-verified",
             Self::DeviceCodeReady => "device-code-ready",
+            Self::BrowserOAuthReady => "browser-oauth-ready",
+            Self::BrowserOAuthCallbackReceived => "browser-oauth-callback-received",
             Self::AuthorizationComplete => "authorization-complete",
             Self::Ready => "ready",
         }
@@ -76,8 +80,10 @@ impl SetupCheckpoint {
             8 => Self::AwaitingBrowserPair,
             9 => Self::BrowserPairVerified,
             10 => Self::DeviceCodeReady,
-            11 => Self::AuthorizationComplete,
-            12 => Self::Ready,
+            11 => Self::BrowserOAuthReady,
+            12 => Self::BrowserOAuthCallbackReceived,
+            13 => Self::AuthorizationComplete,
+            14 => Self::Ready,
             _ => return None,
         })
     }
@@ -104,13 +110,21 @@ impl PersistedSetupState {
         if app_state.google_user.is_some() {
             flags |= FLAG_OWNER_PRESENT;
         }
-        if app_state.pairing_code.as_deref().is_some_and(|value| !value.is_empty()) {
+        if app_state
+            .pairing_code
+            .as_deref()
+            .is_some_and(|value| !value.is_empty())
+        {
             flags |= FLAG_PAIRING_CODE_PRESENT;
         }
         if browser_verified {
             flags |= FLAG_BROWSER_VERIFIED;
         }
-        if app_state.auth_user_code.as_deref().is_some_and(|value| !value.is_empty()) {
+        if app_state
+            .auth_user_code
+            .as_deref()
+            .is_some_and(|value| !value.is_empty())
+        {
             flags |= FLAG_AUTH_CODE_PRESENT;
         }
         if app_state

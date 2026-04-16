@@ -278,11 +278,7 @@ fn apply_snapshot_to_window(window: &MainWindow, snapshot: &UiStateSnapshot) {
     window.set_pairing_qr_url(pairing_qr_url.as_deref().unwrap_or_default().into());
     window.set_pairing_qr_image(build_pairing_qr_image(pairing_qr_url.as_deref()));
 
-    let photos: Vec<Image> = snapshot
-        .photos
-        .iter()
-        .map(|_| Image::default())
-        .collect();
+    let photos: Vec<Image> = snapshot.photos.iter().map(|_| Image::default()).collect();
     let photos_model = Rc::new(VecModel::from(photos));
     window.set_photos(photos_model.into());
 }
@@ -308,9 +304,7 @@ fn browser_pairing_qr_url(snapshot: &UiStateSnapshot) -> Option<String> {
 }
 
 fn build_pairing_qr_image(target: Option<&str>) -> Image {
-    target
-        .and_then(render_pairing_qr_image)
-        .unwrap_or_default()
+    target.and_then(render_pairing_qr_image).unwrap_or_default()
 }
 
 fn render_pairing_qr_image(target: &str) -> Option<Image> {
@@ -345,8 +339,7 @@ fn render_pairing_qr_image(target: &str) -> Option<Image> {
                 && qr.get_module(
                     (module_x - quiet_zone) as i32,
                     (module_y - quiet_zone) as i32,
-                )
-            {
+                ) {
                 black
             } else {
                 white
@@ -498,8 +491,8 @@ mod tests {
         state.begin_setup();
         state.set_network_phase(NetworkPhase::Connected);
         state.set_local_setup_details(
-            "frame.local",
-            Some("http://frame.local".to_string()),
+            "192.168.1.44",
+            Some("http://192.168.1.44".to_string()),
             Some("http://192.168.1.44".to_string()),
         );
         state.set_pairing_code("482731");
@@ -509,7 +502,7 @@ mod tests {
         assert_eq!(snapshot.app_phase, "Setup");
         assert_eq!(snapshot.network_status, "Connected");
         assert_eq!(snapshot.pairing_code, "482731");
-        assert_eq!(snapshot.local_setup_url, "http://frame.local");
+        assert_eq!(snapshot.local_setup_url, "http://192.168.1.44");
         assert!(snapshot.detail_text.contains("Wi-Fi is connected"));
     }
 }

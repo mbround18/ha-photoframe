@@ -1815,15 +1815,18 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "base64 0.22.1",
  "dotenvy",
  "embedded-svc",
  "esp-idf-svc",
  "frame-core",
  "log",
  "oauth2",
+ "rand 0.8.5",
  "reqwest",
  "serde",
  "serde_json",
+ "sha2",
  "tokio",
  "url",
  "wiremock",
@@ -1835,9 +1838,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "esp-idf-svc",
+ "frame-api",
  "log",
  "serde",
  "serde_json",
+ "url",
 ]
 
 [[package]]

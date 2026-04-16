@@ -1,6 +1,9 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use frame_core::models::GoogleUser;
+use rand::RngCore;
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use std::time::{Duration, Instant};
 use url::Url;
 
@@ -40,6 +43,16 @@ pub struct DeviceAccessToken {
     pub access_token: String,
     pub refresh_token: Option<String>,
     pub expires_in: u64,
+}
+
+#[derive(Clone, Debug)]
+pub struct BrowserAuthorizationRequest {
+    pub authorization_url: Url,
+    pub redirect_uri: Url,
+    pub state: String,
+    pub pkce_verifier: String,
+    pub device_id: String,
+    pub device_name: String,
 }
 
 #[cfg(target_os = "espidf")]
@@ -89,6 +102,13 @@ fn oauth_client_credentials() -> Result<(String, String)> {
     Ok((client_id, client_secret))
 }
 
+fn configured_browser_redirect_uri() -> Option<String> {
+    embedded_or_runtime_env(
+        "GOOGLE_OAUTH_REDIRECT_URI",
+        option_env!("GOOGLE_OAUTH_REDIRECT_URI"),
+    )
+}
+
 fn device_authorization_scopes() -> Vec<String> {
     // Google's limited-input device flow only supports a restricted scope set.
     // Google Photos library scopes are rejected here and must be requested from
@@ -98,6 +118,94 @@ fn device_authorization_scopes() -> Vec<String> {
         "email".to_string(),
         "profile".to_string(),
     ]
+}
+
+fn browser_authorization_scopes() -> Vec<String> {
+    vec![
+        "openid".to_string(),
+        "email".to_string(),
+        "profile".to_string(),
+        "https://www.googleapis.com/auth/photoslibrary.readonly".to_string(),
+    ]
+}
+
+fn random_urlsafe_string(byte_len: usize) -> String {
+    let mut bytes = vec![0_u8; byte_len];
+    rand::thread_rng().fill_bytes(&mut bytes);
+    URL_SAFE_NO_PAD.encode(bytes)
+}
+
+fn pkce_code_challenge(verifier: &str) -> String {
+    let digest = Sha256::digest(verifier.as_bytes());
+    URL_SAFE_NO_PAD.encode(digest)
+}
+
+pub fn resolve_browser_redirect_uri(
+    local_setup_url: Option<&str>,
+    local_setup_ip_url: Option<&str>,
+) -> Result<Url> {
+    if let Some(configured) = configured_browser_redirect_uri() {
+        return Url::parse(&configured)
+            .with_context(|| format!("invalid GOOGLE_OAUTH_REDIRECT_URI: {configured}"));
+    }
+
+    let base = local_setup_url.or(local_setup_ip_url).context(
+        "browser OAuth redirect URI is unavailable because the local setup URL is not ready",
+    )?;
+    let mut redirect_uri = Url::parse(base)
+        .with_context(|| format!("invalid local setup URL for browser OAuth redirect: {base}"))?;
+    redirect_uri.set_path("/oauth/callback");
+    redirect_uri.set_query(None);
+    redirect_uri.set_fragment(None);
+    Ok(redirect_uri)
+}
+
+pub fn build_browser_authorization_request(
+    redirect_uri: &Url,
+    device_id: &str,
+    device_name: &str,
+) -> Result<BrowserAuthorizationRequest> {
+    let (client_id, _) = oauth_client_credentials()?;
+    let device_id = device_id.trim();
+    let device_name = device_name.trim();
+
+    if device_id.is_empty() {
+        anyhow::bail!("browser OAuth requires a non-empty device_id for private-IP Google login");
+    }
+    if device_name.is_empty() {
+        anyhow::bail!("browser OAuth requires a non-empty device_name for private-IP Google login");
+    }
+
+    let state = random_urlsafe_string(24);
+    let pkce_verifier = random_urlsafe_string(48);
+    let code_challenge = pkce_code_challenge(&pkce_verifier);
+    let scope = browser_authorization_scopes().join(" ");
+    let mut authorization_url = Url::parse("https://accounts.google.com/o/oauth2/v2/auth")
+        .context("invalid Google authorization endpoint")?;
+
+    authorization_url
+        .query_pairs_mut()
+        .append_pair("client_id", &client_id)
+        .append_pair("redirect_uri", redirect_uri.as_str())
+        .append_pair("response_type", "code")
+        .append_pair("scope", &scope)
+        .append_pair("state", &state)
+        .append_pair("code_challenge", &code_challenge)
+        .append_pair("code_challenge_method", "S256")
+        .append_pair("access_type", "offline")
+        .append_pair("include_granted_scopes", "true")
+        .append_pair("prompt", "consent")
+        .append_pair("device_id", device_id)
+        .append_pair("device_name", device_name);
+
+    Ok(BrowserAuthorizationRequest {
+        authorization_url,
+        redirect_uri: redirect_uri.clone(),
+        state,
+        pkce_verifier,
+        device_id: device_id.to_string(),
+        device_name: device_name.to_string(),
+    })
 }
 
 #[cfg(target_os = "espidf")]
@@ -283,6 +391,67 @@ pub fn refresh_device_access_token(refresh_token: &str) -> Result<DeviceAccessTo
     }
 
     serde_json::from_str(&response_body).context("invalid OAuth refresh token payload")
+}
+
+#[cfg(not(target_os = "espidf"))]
+pub fn exchange_browser_authorization_code(
+    redirect_uri: &Url,
+    authorization_code: &str,
+    pkce_verifier: &str,
+) -> Result<DeviceAccessToken> {
+    let (client_id, client_secret) = oauth_client_credentials()?;
+    let http_client = build_oauth_http_client()?;
+    let response = http_client
+        .post("https://oauth2.googleapis.com/token")
+        .form(&[
+            ("grant_type", "authorization_code"),
+            ("code", authorization_code),
+            ("redirect_uri", redirect_uri.as_str()),
+            ("client_id", client_id.as_str()),
+            ("client_secret", client_secret.as_str()),
+            ("code_verifier", pkce_verifier),
+        ])
+        .send()
+        .context("failed to exchange OAuth authorization code")?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().unwrap_or_default();
+        return Err(anyhow!(
+            "failed to exchange OAuth authorization code, status {status}: {body}"
+        ));
+    }
+
+    response
+        .json::<DeviceAccessToken>()
+        .context("invalid OAuth authorization code token payload")
+}
+
+#[cfg(target_os = "espidf")]
+pub fn exchange_browser_authorization_code(
+    redirect_uri: &Url,
+    authorization_code: &str,
+    pkce_verifier: &str,
+) -> Result<DeviceAccessToken> {
+    let (client_id, client_secret) = oauth_client_credentials()?;
+    let body = form_body(&[
+        ("grant_type", "authorization_code"),
+        ("code", authorization_code),
+        ("redirect_uri", redirect_uri.as_str()),
+        ("client_id", client_id.as_str()),
+        ("client_secret", client_secret.as_str()),
+        ("code_verifier", pkce_verifier),
+    ]);
+    let (status, response_body) = oauth_request("https://oauth2.googleapis.com/token", &body)
+        .context("failed to exchange OAuth authorization code")?;
+
+    if !(200..300).contains(&status) {
+        return Err(anyhow!(
+            "failed to exchange OAuth authorization code, status {status}: {response_body}"
+        ));
+    }
+
+    serde_json::from_str(&response_body).context("invalid OAuth authorization code token payload")
 }
 
 // `request_device_authorization` will make a request to the device authorization
