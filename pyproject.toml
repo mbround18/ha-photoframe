@@ -28,6 +28,9 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+# The integration lives at the repo root for HACS, so the repo root has to be
+# importable for `custom_components.photoframe_bridge...` to resolve.
+pythonpath = ["."]
 
 [build-system]
 requires = ["uv_build>=0.11.7,<0.12"]

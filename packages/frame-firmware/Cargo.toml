@@ -50,5 +50,25 @@ component_dirs = ["components", "../../tmp/common_components"]
 [[package.metadata.esp-idf-sys.extra_components]]
 remote_component = { name = "espressif/esp_wifi_remote", version = "*" }
 
+# Pin esp_hosted to the 2.12 line. 3.0 renamed the hosted-BT Kconfig symbols
+# (ESP_HOSTED_ENABLE_BT_NIMBLE / ESP_HOSTED_NIMBLE_HCI_VHCI are gone) and its
+# CMake fails loudly on the old ones. The T056 BLE spike was verified working
+# against 2.12.3 on real hardware, so hold there deliberately rather than let a
+# transitive resolve drift us across a major version.
+# Revisit with esp-hosted's migration guide before moving to 3.x.
+[[package.metadata.esp-idf-sys.extra_components]]
+remote_component = { name = "espressif/esp_hosted", version = "~2.12" }
+
+# esp_lvgl_port 2.9.0 references esp_lcd_dpi_panel_event_callbacks_t's
+# `on_frame_buf_complete`, which does not exist in ESP-IDF 5.5.3. Hold at the
+# 2.7 line that this project is known to build against.
+[[package.metadata.esp-idf-sys.extra_components]]
+remote_component = { name = "espressif/esp_lvgl_port", version = "~2.7" }
+
 [[package.metadata.esp-idf-sys.extra_components]]
 remote_component = { name = "espressif/esp32_p4_function_ev_board", version = "*" }
+
+# This board's panel is a JD9365, not the ILI9881C the upstream BSP installs for
+# CONFIG_BSP_LCD_TYPE_1280_800. See docs/Hardware-Reference.md section 6.
+[[package.metadata.esp-idf-sys.extra_components]]
+remote_component = { name = "espressif/esp_lcd_jd9365", version = "^1.0.2" }

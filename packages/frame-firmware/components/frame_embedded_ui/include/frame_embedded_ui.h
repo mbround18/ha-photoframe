@@ -7,6 +7,9 @@ extern "C"
 {
 #endif
 
+  /** Set panel backlight brightness, 0-100 percent (drives LCD_PWM on GPIO23). */
+  esp_err_t frame_embedded_panel_set_brightness(uint8_t percent);
+
   esp_err_t frame_embedded_ui_start(void);
   esp_err_t frame_embedded_panel_init(uint16_t width,
                                       uint16_t height,

@@ -10,7 +10,7 @@ dependencies:
       type: service
     version: 0.5.3
   espressif/eppp_link:
-    component_hash: 9472e6825f4bb71eca2b39cf1bc92659c1ac60bfd7416560ad033a7dd8641b17
+    component_hash: c1369b37f2b0b427b198ae14e07e7547d3da92b95fe4dc7f949e5de560b35f21
     dependencies:
     - name: espressif/esp_serial_slave_link
       registry_url: https://components.espressif.com
@@ -22,7 +22,7 @@ dependencies:
     source:
       registry_url: https://components.espressif.com
       type: service
-    version: 1.1.4
+    version: 1.1.6
   espressif/esp32_p4_function_ev_board:
     component_hash: e52edf61c2c53729ded4eabf166427d2b8cf5799b09bd4aa823a89327e429f4d
     dependencies:
@@ -99,7 +99,7 @@ dependencies:
     - esp32c61
     version: 2.0.1
   espressif/esp_codec_dev:
-    component_hash: 54870f7a66dd93367b4153dedb22299efadf8b7b2ead322cdebc7c92a542fa35
+    component_hash: df70f10af8d7b922add7b9d07372c9c97ab356e58d72b7a892050227c2d44348
     dependencies:
     - name: idf
       require: private
@@ -107,7 +107,7 @@ dependencies:
     source:
       registry_url: https://components.espressif.com
       type: service
-    version: 1.5.7
+    version: 1.5.11
   espressif/esp_h264:
     component_hash: fa5daaebc8a304f0b79bc57e51aab43e0a03eabc2ba3865bff4063c56b5d4564
     dependencies:
@@ -119,15 +119,15 @@ dependencies:
       type: service
     version: 1.0.4
   espressif/esp_hosted:
-    component_hash: e23eb702781c804a62909e5394da0641a2bff9adccec6673a7bff60ce8c8b756
+    component_hash: 8ca10092db3e8c8122540d907ab705805a269377d31192f087ba1def2f5f4f91
     dependencies:
     - name: idf
       require: private
       version: '>=5.3'
     source:
-      registry_url: https://components.espressif.com
+      registry_url: https://components.espressif.com/
       type: service
-    version: 2.12.3
+    version: 2.12.12
   espressif/esp_ipa:
     component_hash: 31003e536f0d26158e10d7fcf2448b6377ce1148518287d0f34ed3b6c942c6d8
     dependencies:
@@ -145,7 +145,7 @@ dependencies:
     - esp32p4
     version: 1.3.1
   espressif/esp_lcd_ek79007:
-    component_hash: 7a0896e167d88b9fc368ac74b2e84774ec5b48cd9baa390896c4be255d900e2e
+    component_hash: c5a0501fbab972031026aa6144354b31ed6db899cf2ee5a22ca4ebaf3fea1657
     dependencies:
     - name: espressif/cmake_utilities
       registry_url: https://components.espressif.com
@@ -159,7 +159,7 @@ dependencies:
       type: service
     targets:
     - esp32p4
-    version: 2.0.2
+    version: 2.0.2~1
   espressif/esp_lcd_ili9881c:
     component_hash: 0288df12755c95d406ccea245a427595f314df0b14a61846286d926ea6f3698e
     dependencies:
@@ -172,6 +172,22 @@ dependencies:
     targets:
     - esp32p4
     version: 1.1.0
+  espressif/esp_lcd_jd9365:
+    component_hash: a191822f1d90de977e15f2d6f58783b288b782f82a980c4d6ea4c1fd75aba6f2
+    dependencies:
+    - name: espressif/cmake_utilities
+      registry_url: https://components.espressif.com
+      require: private
+      version: 0.*
+    - name: idf
+      require: private
+      version: '>=5.3'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    targets:
+    - esp32p4
+    version: 1.0.4
   espressif/esp_lcd_lt8912b:
     component_hash: f954a3393c8e16159f0c7448c9f4312b58933a53563fe5173db5f63a2b0f7aa7
     dependencies:
@@ -193,7 +209,7 @@ dependencies:
       type: service
     version: 1.2.1
   espressif/esp_lcd_touch_gt911:
-    component_hash: 6029febef66eefd0910d527d7f30292779ccbf22a8dedd2bd69466acf0068a7b
+    component_hash: 737bdf29e0823eacf041381e81db2aaf5d378f3b5417df7f415f83319e3e790b
     dependencies:
     - name: espressif/esp_lcd_touch
       registry_url: https://components.espressif.com
@@ -205,7 +221,7 @@ dependencies:
     source:
       registry_url: https://components.espressif.com
       type: service
-    version: 1.2.0~2
+    version: 1.2.1
   espressif/esp_lvgl_port:
     component_hash: b6360960f47b6776462e7092861b3ea66477ffb762a01baa0aecbb3d74cd50f4
     dependencies:
@@ -217,11 +233,11 @@ dependencies:
       require: public
       version: '>=8,<10'
     source:
-      registry_url: https://components.espressif.com
+      registry_url: https://components.espressif.com/
       type: service
     version: 2.7.2
   espressif/esp_sccb_intf:
-    component_hash: c071b189e49f40940722aea01a5489f873385cc39cd5b14012341135b85d1a9d
+    component_hash: eb6a7d5c992f09583c163b2e3f5e95a0fdc87a2d9f8e026f3e59153935553889
     dependencies:
     - name: idf
       require: private
@@ -229,7 +245,7 @@ dependencies:
     source:
       registry_url: https://components.espressif.com
       type: service
-    version: 0.0.8
+    version: 0.0.9
   espressif/esp_serial_slave_link:
     component_hash: ac1776806de0a6e371c84e87898bb983e19ce62aa7f1e2e5c4a3b0234a575d2c
     dependencies:
@@ -327,19 +343,19 @@ dependencies:
     - linux
     version: 2.4.2
   espressif/wifi_remote_over_eppp:
-    component_hash: 06d8bc15348bbd21f1390daace36ed5adcf6026c93c5b69decc55fa04df2711a
+    component_hash: 1fd6968af20f0b19e421f6b519b0a8caf81d689afc3783b564c28559e45f66ef
     dependencies:
-    - name: idf
-      require: private
-      version: '>=5.3'
     - name: espressif/eppp_link
       registry_url: https://components.espressif.com
       require: private
       version: '>=0.1'
+    - name: idf
+      require: private
+      version: '>=5.3'
     source:
       registry_url: https://components.espressif.com
       type: service
-    version: 0.3.2
+    version: 0.3.3
   idf:
     source:
       type: idf
@@ -353,7 +369,10 @@ dependencies:
     version: 9.5.0
 direct_dependencies:
 - espressif/esp32_p4_function_ev_board
+- espressif/esp_hosted
+- espressif/esp_lcd_jd9365
+- espressif/esp_lvgl_port
 - espressif/esp_wifi_remote
-manifest_hash: c1bc56f4cece987b822bb4f5ed76ac8260a81359bcc6f1672a139b0698c4d956
+manifest_hash: 45ce1fe4ab6cd28dba7007296fd155efa061ea4fb3ec29d5a62aaeee31c8b728
 target: esp32p4
 version: 2.0.0

@@ -10,13 +10,34 @@
 #include "esp_check.h"
 #include "esp_err.h"
 #include "esp_heap_caps.h"
+#include "driver/ledc.h"
+#include "esp_lcd_jd9365.h"
+#include "esp_lcd_mipi_dsi.h"
 #include "esp_lcd_panel_ops.h"
+#include "esp_ldo_regulator.h"
 #include "esp_log.h"
 #include "esp_task_wdt.h"
 #include "frame_embedded_ui.h"
 #include "bsp/esp32_p4_function_ev_board.h"
 
 static const char *TAG = "frame_embedded_ui";
+
+/*
+ * This board carries a JD9365-driven 800x1280 panel. The upstream
+ * esp32_p4_function_ev_board BSP installs an ILI9881C for
+ * CONFIG_BSP_LCD_TYPE_1280_800, which this panel does not answer -- it reports
+ * ID1/ID2/ID3 all 0x0 and never receives a valid init sequence. So we bring the
+ * DSI bus and panel up ourselves, following the vendor's own video_lcd_display
+ * demo. See docs/Hardware-Reference.md sections 2 and 6.
+ */
+#define FRAME_LCD_RST_GPIO      (27)  /* LCD_RST  */
+#define FRAME_LCD_BACKLIGHT_GPIO (23) /* LCD_PWM -> MP3202 boost EN */
+#define FRAME_MIPI_DSI_LDO_CHAN (3)
+#define FRAME_MIPI_DSI_LDO_MV   (2500)
+
+static esp_ldo_channel_handle_t s_mipi_phy_pwr;
+static esp_lcd_dsi_bus_handle_t s_dsi_bus;
+static esp_lcd_panel_io_handle_t s_dbi_io;
 static bool s_started;
 static bool s_panel_started;
 static bool s_panel_rotation_in_software;
@@ -66,9 +87,107 @@ static void unlock_display(void)
   }
 }
 
+/*
+ * The backlight is an MP3202 boost converter whose EN pin is driven from
+ * GPIO23 (net LCD_PWM). Drive it with LEDC so brightness is available later
+ * (FR-034) rather than only on/off.
+ */
+static esp_err_t configure_backlight(void)
+{
+  const ledc_timer_config_t timer = {
+      .speed_mode = LEDC_LOW_SPEED_MODE,
+      .duty_resolution = LEDC_TIMER_10_BIT,
+      .timer_num = LEDC_TIMER_1,
+      .freq_hz = 5000,
+      .clk_cfg = LEDC_AUTO_CLK,
+  };
+  ESP_RETURN_ON_ERROR(ledc_timer_config(&timer), TAG, "backlight timer config failed");
+
+  const ledc_channel_config_t channel = {
+      .gpio_num = FRAME_LCD_BACKLIGHT_GPIO,
+      .speed_mode = LEDC_LOW_SPEED_MODE,
+      .channel = LEDC_CHANNEL_1,
+      .timer_sel = LEDC_TIMER_1,
+      .duty = 0,
+      .hpoint = 0,
+  };
+  ESP_RETURN_ON_ERROR(ledc_channel_config(&channel), TAG, "backlight channel config failed");
+
+  return ESP_OK;
+}
+
+esp_err_t frame_embedded_panel_set_brightness(uint8_t percent)
+{
+  if (percent > 100)
+  {
+    percent = 100;
+  }
+
+  const uint32_t duty = (uint32_t)((1023U * percent) / 100U);
+  ESP_RETURN_ON_ERROR(ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1, duty), TAG,
+                      "backlight set_duty failed");
+  return ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1);
+}
+
 static esp_err_t enable_vendor_backlight(void)
 {
-  return bsp_display_backlight_on();
+  return frame_embedded_panel_set_brightness(100);
+}
+
+/*
+ * Bring up the MIPI-DSI bus and the JD9365 panel directly.
+ *
+ * Order matters: the DSI PHY is powered from an internal LDO channel and must
+ * be up before the bus is created, or the bus init fails.
+ */
+static esp_err_t panel_init_jd9365(void)
+{
+  esp_ldo_channel_config_t ldo_cfg = {
+      .chan_id = FRAME_MIPI_DSI_LDO_CHAN,
+      .voltage_mv = FRAME_MIPI_DSI_LDO_MV,
+  };
+  ESP_RETURN_ON_ERROR(esp_ldo_acquire_channel(&ldo_cfg, &s_mipi_phy_pwr), TAG,
+                      "MIPI DSI PHY LDO acquire failed");
+  ESP_LOGI(TAG, "MIPI DSI PHY powered from LDO channel %d at %d mV",
+           FRAME_MIPI_DSI_LDO_CHAN, FRAME_MIPI_DSI_LDO_MV);
+
+  esp_lcd_dsi_bus_config_t bus_config = JD9365_PANEL_BUS_DSI_2CH_CONFIG();
+  ESP_RETURN_ON_ERROR(esp_lcd_new_dsi_bus(&bus_config, &s_dsi_bus), TAG,
+                      "DSI bus creation failed");
+
+  esp_lcd_dbi_io_config_t dbi_config = JD9365_PANEL_IO_DBI_CONFIG();
+  ESP_RETURN_ON_ERROR(esp_lcd_new_panel_io_dbi(s_dsi_bus, &dbi_config, &s_dbi_io), TAG,
+                      "DBI panel IO creation failed");
+
+  esp_lcd_dpi_panel_config_t dpi_config =
+      JD9365_800_1280_PANEL_60HZ_DPI_CONFIG(LCD_COLOR_PIXEL_FORMAT_RGB565);
+  dpi_config.num_fbs = 1;
+
+  jd9365_vendor_config_t vendor_config = {
+      .mipi_config = {
+          .dsi_bus = s_dsi_bus,
+          .dpi_config = &dpi_config,
+      },
+  };
+
+  const esp_lcd_panel_dev_config_t panel_config = {
+      .reset_gpio_num = FRAME_LCD_RST_GPIO,
+      .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB,
+      .bits_per_pixel = 16,
+      .vendor_config = &vendor_config,
+  };
+
+  esp_lcd_panel_handle_t panel = NULL;
+  ESP_RETURN_ON_ERROR(esp_lcd_new_panel_jd9365(s_dbi_io, &panel_config, &panel), TAG,
+                      "JD9365 panel creation failed");
+  ESP_RETURN_ON_ERROR(esp_lcd_panel_reset(panel), TAG, "JD9365 panel reset failed");
+  ESP_RETURN_ON_ERROR(esp_lcd_panel_init(panel), TAG, "JD9365 panel init failed");
+
+  s_panel_handles.panel = panel;
+  s_panel_handles.control = NULL;
+
+  ESP_LOGI(TAG, "JD9365 panel initialized (800x1280 native, 2 DSI lanes)");
+  return ESP_OK;
 }
 
 static esp_lcd_panel_handle_t panel_control_handle(void)
@@ -232,16 +351,9 @@ esp_err_t frame_embedded_panel_init(uint16_t width,
 
   memset(&s_panel_handles, 0, sizeof(s_panel_handles));
 
-  const bsp_display_config_t display_config = {
-      .hdmi_resolution = BSP_HDMI_RES_NONE,
-      .dsi_bus = {
-          .phy_clk_src = 0,
-          .lane_bit_rate_mbps = BSP_LCD_MIPI_DSI_LANE_BITRATE_MBPS,
-      },
-  };
-
-  ESP_RETURN_ON_ERROR(bsp_display_new_with_handles(&display_config, &s_panel_handles), TAG, "raw display init failed");
-  ESP_RETURN_ON_ERROR(enable_vendor_backlight(), TAG, "vendor backlight enable failed");
+  ESP_RETURN_ON_ERROR(panel_init_jd9365(), TAG, "JD9365 display init failed");
+  ESP_RETURN_ON_ERROR(configure_backlight(), TAG, "backlight configuration failed");
+  ESP_RETURN_ON_ERROR(enable_vendor_backlight(), TAG, "backlight enable failed");
   ESP_RETURN_ON_ERROR(apply_panel_rotation(rotation_degrees), TAG, "panel rotation setup failed");
 
   s_panel_width = width;

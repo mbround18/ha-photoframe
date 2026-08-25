@@ -104,7 +104,7 @@ display correctly and cross-fade cleanly. No Home Assistant needed (quickstart V
 
 ### Firmware: storage and hardware render path
 
-- [ ] T031a [US3] **Fix the panel driver.** The upstream BSP installs an **ILI9881C** for `CONFIG_BSP_LCD_TYPE_1280_800`, but this board has a **JD9365** — confirmed on hardware, where the panel does not answer (`ili9881c: ID1: 0x0, ID2: 0x0, ID3: 0x0`) even though the backlight lights. Add `esp_lcd_jd9365` and drive the panel with `JD9365_PANEL_BUS_DSI_2CH_CONFIG()` / `JD9365_800_1280_PANEL_60HZ_DPI_CONFIG()`, DPHY LDO channel 3 at 2500 mV, reset on GPIO27, as the vendor's `video_lcd_display` demo does. **Nothing visual can be validated until this lands** ([Hardware-Reference.md](../../docs/Hardware-Reference.md) §6)
+- [x] T031a [US3] **Fix the panel driver.** The upstream BSP installs an **ILI9881C** for `CONFIG_BSP_LCD_TYPE_1280_800`, but this board has a **JD9365** — confirmed on hardware, where the panel does not answer (`ili9881c: ID1: 0x0, ID2: 0x0, ID3: 0x0`) even though the backlight lights. Add `esp_lcd_jd9365` and drive the panel with `JD9365_PANEL_BUS_DSI_2CH_CONFIG()` / `JD9365_800_1280_PANEL_60HZ_DPI_CONFIG()`, DPHY LDO channel 3 at 2500 mV, reset on GPIO27, as the vendor's `video_lcd_display` demo does. **Nothing visual can be validated until this lands** ([Hardware-Reference.md](../../docs/Hardware-Reference.md) §6)
 - [ ] T032 [US3] Create `packages/frame-firmware/components/frame_photo_render/` as a C component with `CMakeLists.txt` and `idf_component.yml`, depending on `esp_driver_jpeg`, `esp_driver_ppa`, and `esp_lcd`
 - [ ] T033 [US3] Implement hardware JPEG decode in `frame_photo_render.c`: `jpeg_decoder_get_info` to read dimensions, `jpeg_alloc_decoder_mem` for aligned buffers, decode to RGB565, honouring the 16-byte output padding documented in [research.md](./research.md) R4
 - [ ] T034 [US3] Implement PPA scale/rotate/present in `frame_photo_render.c`, driving the panel from the decoded buffer without any CPU-side rotation (replacing the software rotate in `frame_embedded_ui.c`)
@@ -119,19 +119,19 @@ display correctly and cross-fade cleanly. No Home Assistant needed (quickstart V
 
 ### Home Assistant: photo preparation
 
-- [ ] T043 [P] [US3] Create `custom_components/photoframe_bridge/renderer.py` with the Pillow pipeline from [research.md](./research.md) R8, running entirely in an executor (`async_add_executor_job`) — never on the event loop
-- [ ] T044 [US3] Implement EXIF handling in `renderer.py`: `ImageOps.exif_transpose` then strip metadata, so photos arrive upright and carry no location data (FR-020, FR-043)
-- [ ] T045 [US3] Implement the `fill` treatment in `renderer.py`: proportional cover-fit and centre crop for photos matching the panel's aspect ratio (FR-021)
-- [ ] T046 [US3] Implement the `letterbox_blur` treatment in `renderer.py` for portrait-on-landscape: a blurred, darkened, zoomed copy of the photo as backdrop with the sharp full photo composited on top (FR-022)
-- [ ] T047 [US3] Enforce baseline JPEG encoding in `renderer.py` (`progressive=False`, quality 85, `optimize=True`) — the P4 hardware decoder rejects progressive JPEG
+- [x] T043 [P] [US3] Create `custom_components/photoframe_bridge/renderer.py` with the Pillow pipeline from [research.md](./research.md) R8, running entirely in an executor (`async_add_executor_job`) — never on the event loop
+- [x] T044 [US3] Implement EXIF handling in `renderer.py`: `ImageOps.exif_transpose` then strip metadata, so photos arrive upright and carry no location data (FR-020, FR-043)
+- [x] T045 [US3] Implement the `fill` treatment in `renderer.py`: proportional cover-fit and centre crop for photos matching the panel's aspect ratio (FR-021)
+- [x] T046 [US3] Implement the `letterbox_blur` treatment in `renderer.py` for portrait-on-landscape: a blurred, darkened, zoomed copy of the photo as backdrop with the sharp full photo composited on top (FR-022)
+- [x] T047 [US3] Enforce baseline JPEG encoding in `renderer.py` (`progressive=False`, quality 85, `optimize=True`) — the P4 hardware decoder rejects progressive JPEG
 - [ ] T048 [US3] Create `custom_components/photoframe_bridge/photo_store.py`: content-addressed `photo_id` from `sha256(item_id + source_id + geometry + pipeline_version)`, atomic writes, and LRU eviction
 - [ ] T049 [US3] Create `custom_components/photoframe_bridge/http_view.py` registering an authenticated `HomeAssistantView` at `/api/photoframe_bridge/photo/{photo_id}`, validating the bearer frame token and returning the status codes in [control-protocol.md](./contracts/control-protocol.md)
 
 ### Tests
 
-- [ ] T050 [P] [US3] Add `tests/test_renderer.py` asserting every output re-parses as **baseline** (not progressive) JPEG — the failure mode that would silently break on hardware
-- [ ] T051 [P] [US3] Add orientation tests to `tests/test_renderer.py` covering all 8 EXIF orientation values
-- [ ] T052 [P] [US3] Add geometry tests to `tests/test_renderer.py`: output is exactly the requested size, aspect ratio preserved, for landscape, portrait, square, oversized, and undersized inputs
+- [x] T050 [P] [US3] Add `tests/test_renderer.py` asserting every output re-parses as **baseline** (not progressive) JPEG — the failure mode that would silently break on hardware
+- [x] T051 [P] [US3] Add orientation tests to `tests/test_renderer.py` covering all 8 EXIF orientation values
+- [x] T052 [P] [US3] Add geometry tests to `tests/test_renderer.py`: output is exactly the requested size, aspect ratio preserved, for landscape, portrait, square, oversized, and undersized inputs
 - [ ] T053 [P] [US3] Add `tests/test_photo_store.py` covering content-addressing idempotence, `pipeline_version` cache invalidation, and LRU eviction order
 - [ ] T054 [P] [US3] Add `tests/test_http_view.py` covering 200, 401 on a bad token, 404 on an evicted photo, and 503 while preparation is in flight
 - [ ] T055 [US3] Assemble the awkward test-photo corpus from quickstart V3 (8 EXIF orientations, 50 MP, 200x150, CMYK, PNG+alpha, progressive JPEG, a video) under `tests/fixtures/photos/`
