@@ -335,6 +335,29 @@ fn run() -> anyhow::Result<()> {
         );
     }
 
+    // Photos the owner copied onto the card take over completely: while that
+    // folder has photos in it the frame shows those and nothing else, needing
+    // no Wi-Fi and no Home Assistant. Scanned once at boot rather than watched,
+    // so swapping the card is a power-cycle -- which is also what the note on
+    // the card tells the owner to do.
+    let local_library = if sd_status.is_ready() {
+        frame_ui::scan_local_photos(sd_card::MEDIA_DIR)
+    } else {
+        frame_ui::LocalLibrary::default()
+    };
+    let local_photos_active = !local_library.is_empty();
+    runtime::set_local_photos_active(local_photos_active);
+    if local_photos_active {
+        let library = local_library.clone();
+        std::thread::spawn(move || frame_ui::local_photos::run_local_slideshow(library));
+    } else if local_library.skipped() > 0 {
+        tracing::warn!(
+            target: "frame_firmware",
+            skipped = local_library.skipped(),
+            "the card's media folder has files in it but none the frame can display;              HEIC photos need exporting as JPEG"
+        );
+    }
+
     // Connect to the Home Assistant control plane. The runtime owns its own
     // reconnect loop, so a controller that is down, restarting, or not yet
     // configured is not an error here -- the frame simply keeps retrying while
@@ -420,6 +443,12 @@ fn run() -> anyhow::Result<()> {
     {
         let health_runtime = thin_client_runtime.status_sender();
         let sd_summary = sd_status.summary();
+        // Fixed for the life of the boot: the card is scanned once at startup.
+        let photo_source = if local_photos_active {
+            format!("SD card ({})", local_library.summary())
+        } else {
+            "Home Assistant".to_string()
+        };
         std::thread::spawn(move || {
             loop {
                 // A snapshot failure means the store lock is poisoned, which
@@ -432,6 +461,7 @@ fn run() -> anyhow::Result<()> {
                     screen_status: None,
                     storage: Some(sd_summary.clone()),
                     buffered_photos: buffered,
+                    photo_source: Some(photo_source.clone()),
                 };
                 if let Err(error) =
                     health_runtime.send_status(frame_core::OutboundStatusMessage::Health(health))

@@ -85,6 +85,13 @@ pub struct DeviceHealth {
     /// Decoded photos ready to show, including the one on screen.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub buffered_photos: Option<u8>,
+    /// Where the photos on screen are coming from.
+    ///
+    /// A frame running from the owner's own SD card photos deliberately ignores
+    /// everything Home Assistant sends. Reporting that is what stops it looking
+    /// like a frame that has stopped working.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub photo_source: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]

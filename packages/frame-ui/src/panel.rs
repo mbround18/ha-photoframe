@@ -23,8 +23,8 @@ use esp_idf_sys as sys;
 
 /// Landscape canvas the UI draws into. The panel is 800x1280 portrait; the
 /// frame hangs on its side and the image is rotated on the way out.
-pub const WIDTH: usize = 1280;
-pub const HEIGHT: usize = 800;
+pub const WIDTH: usize = crate::PANEL_LOGICAL_WIDTH;
+pub const HEIGHT: usize = crate::PANEL_LOGICAL_HEIGHT;
 
 /// Native panel geometry, which is what `esp_lcd_panel_draw_bitmap` wants.
 pub const PANEL_WIDTH: usize = 800;

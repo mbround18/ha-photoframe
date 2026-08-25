@@ -32,6 +32,52 @@ use esp_idf_svc::sys;
 /// Where the card is mounted, matching the BSP's `BSP_SD_MOUNT_POINT`.
 pub const MOUNT_POINT: &str = "/sdcard";
 
+/// Photos pushed down by Home Assistant. Ours to manage: we add, evict, and
+/// clear this on a factory reset, so nothing an owner puts here would survive.
+pub const HA_CACHE_DIR: &str = "/sdcard/ha";
+
+/// Photos the owner copied onto the card themselves.
+///
+/// Never written or deleted by the frame. If this folder has photos in it they
+/// take over the slideshow entirely, which is what makes the frame usable with
+/// no Home Assistant and no network at all.
+pub const MEDIA_DIR: &str = "/sdcard/media";
+
+/// Explains the above to whoever plugs the card into a computer.
+const MEDIA_README_NAME: &str = "READ ME.txt";
+
+const MEDIA_README: &str = "\
+YOUR PHOTOS GO IN THIS FOLDER\r\n\
+=============================\r\n\
+\r\n\
+Copy any photos you like straight into this folder, put the card back in the\r\n\
+frame, and turn it on. The frame will show them.\r\n\
+\r\n\
+While there are photos in here, the frame shows these and only these. It will\r\n\
+not need Wi-Fi and it will not need Home Assistant -- it works completely on\r\n\
+its own.\r\n\
+\r\n\
+To go back to photos chosen in Home Assistant, take every photo out of this\r\n\
+folder and turn the frame off and on again.\r\n\
+\r\n\
+\r\n\
+GOOD TO KNOW\r\n\
+------------\r\n\
+\r\n\
+* JPEG and PNG photos work. Files ending .jpg .jpeg or .png.\r\n\
+\r\n\
+* iPhone photos are often .HEIC, which the frame cannot read. In Photos,\r\n\
+  choose File > Export > Export Photo and pick JPEG.\r\n\
+\r\n\
+* Photos of any size and any shape are fine. Tall photos get black bars at\r\n\
+  the sides rather than having their tops and bottoms cut off.\r\n\
+\r\n\
+* Folders inside this one are ignored. Photos need to sit directly in here.\r\n\
+\r\n\
+* The other folder on this card, 'ha', belongs to the frame. Please leave it\r\n\
+  alone -- the frame empties it whenever it likes.\r\n\
+";
+
 /// What happened when we tried to bring the card up.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SdStatus {
@@ -91,6 +137,28 @@ pub fn mount() -> SdStatus {
         }
     };
 
+    if let Err(error) = prepare_layout() {
+        // The card mounted, so the cache still works; only the owner-facing
+        // folder is missing. Not worth downgrading the card's status for.
+        log::warn!("SD card mounted but its folder layout could not be prepared: {error}");
+    }
+
     log::info!("SD card mounted at {MOUNT_POINT} ({capacity_mb} MB)");
     SdStatus::Ready { capacity_mb }
+}
+
+/// Create the two top-level folders and the note explaining them.
+///
+/// The note is written only when absent, so an owner who edits or deletes it
+/// does not have it silently restored on every boot.
+fn prepare_layout() -> std::io::Result<()> {
+    std::fs::create_dir_all(HA_CACHE_DIR)?;
+    std::fs::create_dir_all(MEDIA_DIR)?;
+
+    let readme = std::path::Path::new(MEDIA_DIR).join(MEDIA_README_NAME);
+    if !readme.exists() {
+        std::fs::write(&readme, MEDIA_README)?;
+        log::info!("wrote {}", readme.display());
+    }
+    Ok(())
 }

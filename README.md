@@ -39,6 +39,17 @@ test, not just intention.
 on the SD card, so a Home Assistant restart, a network outage, or a power cut
 does not interrupt the slideshow.
 
+**The frame works with no Home Assistant at all.** The SD card has a `media`
+folder with a plain-language note in it. Copy photos straight into that folder
+and the frame shows those and nothing else -- no Wi-Fi, no adoption, no Home
+Assistant. Empty the folder and restart to hand control back.
+
+Photos put there have not been through Home Assistant's preparation step, so
+the frame decodes and fits them itself: close to the panel's shape, it crops;
+anything else -- a phone's portrait photos, mostly -- is scaled to fit and
+centred on black rather than cropped through faces. JPEG and PNG only; HEIC,
+which is what an iPhone produces by default, needs exporting as JPEG first.
+
 ## Status
 
 Under active development against

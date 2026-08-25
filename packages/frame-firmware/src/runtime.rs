@@ -5,6 +5,7 @@ use frame_core::{
 };
 use frame_ui::{RenderedImage, clear_rendered_image, push_rendered_image, set_controller_phase};
 use std::net::TcpStream;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, TryRecvError};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
@@ -238,8 +239,37 @@ impl RenderExecutor for LoggingRenderExecutor {
 
 pub struct MediaRenderExecutor;
 
+/// Whether the owner's own photos, copied onto the SD card, are running the
+/// slideshow.
+///
+/// While this is set the frame ignores photos from Home Assistant entirely --
+/// the card wins outright, which is what makes the frame usable with no
+/// network at all. Home Assistant is still told what is going on; it simply
+/// does not get to draw.
+static LOCAL_PHOTOS_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+pub fn set_local_photos_active(active: bool) {
+    LOCAL_PHOTOS_ACTIVE.store(active, Ordering::Relaxed);
+}
+
+pub fn local_photos_active() -> bool {
+    LOCAL_PHOTOS_ACTIVE.load(Ordering::Relaxed)
+}
+
 impl RenderExecutor for MediaRenderExecutor {
     fn render(&mut self, request: &RenderRequest) -> anyhow::Result<()> {
+        if local_photos_active() {
+            // Acknowledged rather than failed: Home Assistant did nothing
+            // wrong, and an error here would show up as a broken frame on the
+            // device page when the frame is working exactly as intended.
+            tracing::debug!(
+                target: "frame_firmware",
+                media_url = request.media_url,
+                "ignoring photo from Home Assistant: the SD card's media folder has photos in it"
+            );
+            return Ok(());
+        }
+
         tracing::info!(
             target: "frame_firmware",
             media_url = request.media_url,

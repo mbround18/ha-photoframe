@@ -44,6 +44,7 @@ class FrameSession:
     #: State the frame reports about itself.
     storage: str | None = None
     buffered_photos: int | None = None
+    photo_source: str | None = None
     _socket: web.WebSocketResponse | None = field(default=None, repr=False)
 
     @property
@@ -149,6 +150,9 @@ class ControlServer:
             buffered = health.get("buffered_photos")
             if isinstance(buffered, int):
                 session.buffered_photos = buffered
+            photo_source = health.get("photo_source")
+            if isinstance(photo_source, str):
+                session.photo_source = photo_source
         elif kind == "hello":
             panel = message.get("panel") or {}
             width, height = panel.get("width"), panel.get("height")

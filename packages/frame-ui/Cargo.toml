@@ -16,7 +16,7 @@ embedded-graphics = "0.8.2"
 # We use it specifically for its JPEG decoding capability to process the
 # photos downloaded from Home Assistant into a raw pixel format that can be
 # sent to the display.
-image = { version = "0.25.10", default-features = false, features = ["jpeg"] }
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png"] }
 
 # `anyhow` and `log` are used for error handling and logging within the UI
 # component, respectively.

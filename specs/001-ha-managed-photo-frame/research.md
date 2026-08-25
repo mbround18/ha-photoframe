@@ -579,3 +579,47 @@ board facts that no amount of API-level inference will recover.
 **Also corrected**: the BSP guards its long-filename warning on `CONFIG_FATFS_LONG_FILENAMES`, which
 is a Kconfig *choice* rather than a config symbol. The test can never be satisfied, so the warning
 fires even with long filenames enabled. Repointed at `CONFIG_FATFS_LFN_NONE`.
+
+---
+
+## R13. Owner-supplied photos on the SD card
+
+**Decision**: the card carries two folders. `ha/` is the frame's own cache, ours to evict and clear.
+`media/` belongs to the owner, is never written or deleted by the frame, and contains a
+plain-language note explaining itself. **While `media/` holds photos the frame shows those and
+nothing else**, ignoring Home Assistant entirely.
+
+**Rationale**: it makes the frame a complete product on its own. Copy photos onto the card, plug it
+in, switch it on -- no Wi-Fi, no adoption, no Home Assistant account. That matters for a gift: the
+device works the moment it is unwrapped, and keeps working if the network it was set up on ever goes
+away for good.
+
+**Alternatives considered**: mixing local and Home Assistant photos into one rotation, and treating
+`media/` as an offline fallback used only when Home Assistant is unreachable. Both were rejected by
+the owner in favour of outright precedence, which is the only one of the three that is explainable
+in two sentences on a card someone reads once.
+
+**Consequence worth stating plainly**: dropping a single photo into `media/` silently switches off
+Home Assistant curation for that frame. This is mitigated, not eliminated -- the frame reports
+`photo_source` in its health message, the coordinator exposes `running_from_sd_card` and a
+`local_photos_notice` explaining how to hand control back, and the note on the card says the same
+thing. An owner who forgets will still be briefly puzzled.
+
+**Fitting**: photos here have not been through `renderer.py`, so the frame fits them itself
+(`frame_ui::fit`). Crop when the photo is within 25% of the panel's aspect -- the same tolerance the
+Home Assistant renderer uses, so both paths make the same call about the same photo -- and otherwise
+scale to fit and centre on black. **This diverges deliberately from Home Assistant's blurred
+backdrop**: a 1280x800 gaussian blur is expensive on a 400 MHz core, black costs nothing, and the UI
+is already true black because anything lighter shows the panel's mura (R11).
+
+**Formats**: JPEG and PNG. **Not HEIC**, which is what an iPhone produces by default and therefore
+the single most likely thing an owner will copy across. There is no HEIC decoder in the firmware;
+unreadable files are counted and reported (`"200 file(s) on card, none readable"`) so a folder of
+HEIC is explicable rather than mysterious, and the note on the card gives the export steps.
+
+**Scanned once at boot**, not watched. Swapping the card is a power cycle, which is what the note
+tells the owner to do anyway, and it keeps the frame off the filesystem during normal running.
+
+**Testing note**: this logic lives in `frame-ui` rather than `frame-firmware` specifically so it can
+be tested. `frame-firmware` cannot compile for the host -- it pulls `esp_idf_svc` -- so anything put
+there is unreachable by `make test-host` and would go unverified.

@@ -265,8 +265,35 @@ class FrameCoordinator:
             # its in-memory buffer only and will lose its photos on reboot.
             "storage": session.storage if session else None,
             "buffered_photos": session.buffered_photos if session else None,
+            # "SD card (...)" means the frame is running from photos the owner
+            # copied onto the card and is ignoring anything we send.
+            "photo_source": session.photo_source if session else None,
             "updated": dt_util.utcnow().isoformat(),
         }
+
+    @property
+    def running_from_sd_card(self) -> bool:
+        """Whether the frame is showing photos from its own SD card.
+
+        While it is, everything this integration sends is deliberately ignored,
+        so anything reporting on photo delivery should say so rather than look
+        broken.
+        """
+        session = self.server.session(self.frame_id)
+        return bool(session and session.photo_source and session.photo_source.startswith("SD card"))
+
+    @property
+    def local_photos_notice(self) -> str | None:
+        """An explanation of why this frame is ignoring us, or None."""
+        if not self.running_from_sd_card:
+            return None
+        session = self.server.session(self.frame_id)
+        source = session.photo_source if session else "its SD card"
+        return (
+            f"This frame is showing photos from {source} and is ignoring the album "
+            "chosen here. To hand control back to Home Assistant, remove the photos "
+            "from the 'media' folder on its SD card and restart the frame."
+        )
 
     @property
     def storage_warning(self) -> str | None:
