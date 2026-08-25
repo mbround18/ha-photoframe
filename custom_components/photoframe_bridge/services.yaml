@@ -1,64 +1,28 @@
 display_photo:
-  name: Display Photo
-  description: Send a render request to a connected PhotoFrame device.
+  name: Show next photo
+  description: Advance the frame to the next photo immediately.
   fields:
     device_id:
-      required: true
-      selector:
-        text:
-    media_url:
-      required: true
-      selector:
-        text:
-    brightness:
-      required: false
-      selector:
-        number:
-          min: 0
-          max: 100
-    transition_type:
-      required: false
-      selector:
-        select:
-          options:
-            - cut
-            - fade
-            - slide_left
-            - slide_right
-    correlation_id:
+      name: Frame
+      description: Which frame to advance. Omit to advance every frame.
       required: false
       selector:
         text:
 
 send_command:
-  name: Send Command
-  description: Send a device command to a connected PhotoFrame device.
+  name: Send command
+  description: Send a control command to a frame.
   fields:
-    device_id:
-      required: true
-      selector:
-        text:
     command:
+      name: Command
+      description: "One of: next, previous, refresh, reload_ui, reboot."
       required: true
       selector:
         select:
-          options:
-            - reload_ui
-            - reboot
-    correlation_id:
-      required: false
-      selector:
-        text:
-
-claim_device:
-  name: Claim Device
-  description: Mark a connected PhotoFrame as claimed in Home Assistant and notify the frame.
-  fields:
+          options: [next, previous, refresh, reload_ui, reboot]
     device_id:
-      required: true
-      selector:
-        text:
-    display_name:
+      name: Frame
+      description: Which frame to command. Omit to command every frame.
       required: false
       selector:
         text:

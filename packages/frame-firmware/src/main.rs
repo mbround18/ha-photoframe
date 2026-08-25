@@ -22,7 +22,23 @@ unsafe extern "C" {
 }
 
 #[cfg(target_os = "espidf")]
-const DEFAULT_CONTROL_PLANE_URL: &str = "ws://homeassistant.local:8765/ws";
+// The control channel is hosted on Home Assistant's own web server, so it
+// shares port 8123 rather than opening a second listener.
+const DEFAULT_CONTROL_PLANE_URL: &str = "ws://homeassistant.local:8123/api/photoframe_bridge/ws";
+
+/// Where to look for the Home Assistant control plane.
+///
+/// Adoption will teach the frame this address (T067); until then a build-time
+/// `HA_CONTROL_URL` in the workspace `.env` lets a development board be pointed
+/// at an instance directly, which also covers networks where `.local` does not
+/// resolve.
+#[cfg(target_os = "espidf")]
+fn control_plane_url() -> &'static str {
+    match option_env!("HA_CONTROL_URL") {
+        Some(url) if !url.is_empty() => url,
+        _ => DEFAULT_CONTROL_PLANE_URL,
+    }
+}
 
 #[cfg(target_os = "espidf")]
 fn rom_print(message: &'static [u8]) {
@@ -298,15 +314,40 @@ fn run() -> anyhow::Result<()> {
         &app_state,
     );
 
+    // Connect to the Home Assistant control plane. The runtime owns its own
+    // reconnect loop, so a controller that is down, restarting, or not yet
+    // configured is not an error here -- the frame simply keeps retrying while
+    // continuing to show whatever it already has (FR-026).
+    let controller_url = control_plane_url();
+    let thin_client_runtime = runtime::ThinClientRuntime::spawn(
+        runtime::WebSocketControlPlaneTransport::new(controller_url),
+        runtime::MediaRenderExecutor,
+    );
+
     app_state.set_controller_phase(frame_core::ControllerPhase::Searching);
     frame_ui::set_controller_phase(app_state.controller_phase.clone())?;
     ui.sync_state(&app_state)?;
 
+    if let (Some(device_id), Some(device_name)) =
+        (app_state.device_id.clone(), app_state.device_name.clone())
+    {
+        // Announce ourselves so the controller can associate this connection
+        // with a frame. The full claim handshake lands in T072.
+        if let Err(error) =
+            thin_client_runtime.send_status(frame_core::OutboundStatusMessage::Connected {
+                device_id,
+                device_name,
+            })
+        {
+            tracing::warn!(target: "frame_firmware", "could not announce to controller: {error}");
+        }
+    }
+
     tracing::info!(
         target: "frame_firmware",
         device_id = app_state.device_id.as_deref().unwrap_or_default(),
-        default_controller_url = DEFAULT_CONTROL_PLANE_URL,
-        "network connected; awaiting Home Assistant adoption support"
+        controller_url,
+        "control-plane runtime started"
     );
 
     // T056 spike: prove a connectable BLE peripheral works on this board before

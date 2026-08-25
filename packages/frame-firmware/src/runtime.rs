@@ -83,6 +83,17 @@ pub struct ThinClientRuntime {
     render_join: JoinHandle<()>,
 }
 
+/// Stack for the control-plane thread.
+///
+/// ESP-IDF gives pthreads 3 KB by default (`CONFIG_PTHREAD_TASK_STACK_SIZE_DEFAULT`),
+/// which the WebSocket handshake blows straight through -- it faults in
+/// `pthread` with a stack protection error before the first message is even
+/// sent. These threads must therefore size their own stacks explicitly.
+const CONTROL_PLANE_STACK_BYTES: usize = 16 * 1024;
+
+/// Stack for the render thread, which additionally decodes a JPEG.
+const RENDER_CONTROLLER_STACK_BYTES: usize = 32 * 1024;
+
 impl ThinClientRuntime {
     pub fn spawn<T, E>(transport: T, render_executor: E) -> Self
     where
@@ -95,11 +106,13 @@ impl ThinClientRuntime {
 
         let control_join = thread::Builder::new()
             .name("frame-control-plane".to_string())
+            .stack_size(CONTROL_PLANE_STACK_BYTES)
             .spawn(move || run_control_plane_loop(transport, control_tx, transport_rx))
             .expect("failed to spawn control plane thread");
 
         let render_join = thread::Builder::new()
             .name("frame-render-controller".to_string())
+            .stack_size(RENDER_CONTROLLER_STACK_BYTES)
             .spawn(move || {
                 run_render_controller_loop(render_executor, control_rx, render_status_tx)
             })

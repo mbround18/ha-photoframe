@@ -1795,6 +1795,7 @@ name = "frame-firmware"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "dotenvy",
  "embedded-svc",
  "embuild",
  "esp-idf-hal",
