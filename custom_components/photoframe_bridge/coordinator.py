@@ -261,5 +261,23 @@ class FrameCoordinator:
             "cursor": self.pool.cursor,
             "current_photo_id": self.current_photo_id,
             "last_error": self.last_error,
+            # Reported by the frame. "no card detected" means it is running from
+            # its in-memory buffer only and will lose its photos on reboot.
+            "storage": session.storage if session else None,
+            "buffered_photos": session.buffered_photos if session else None,
             "updated": dt_util.utcnow().isoformat(),
         }
+
+    @property
+    def storage_warning(self) -> str | None:
+        """A problem with the frame's SD cache, in words, or None."""
+        session = self.server.session(self.frame_id)
+        if session is None or session.storage is None:
+            return None
+        if session.storage.startswith("ready"):
+            return None
+        return (
+            f"This frame has no usable SD card ({session.storage}). It will keep "
+            "showing photos, but only the few it holds in memory, and it will lose "
+            "them when it restarts."
+        )

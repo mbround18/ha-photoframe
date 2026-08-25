@@ -73,6 +73,18 @@ pub enum ScreenStatus {
 pub struct DeviceHealth {
     pub cpu_temp_millidegrees: Option<i32>,
     pub screen_status: Option<ScreenStatus>,
+    /// Plain-language state of the SD cache, e.g. "ready (61035 MB)" or
+    /// "no card detected".
+    ///
+    /// Reported rather than shown on the panel: an adopted frame shows photos
+    /// and nothing else (Principle VIII). Without a card the frame still works,
+    /// but only from its in-memory buffer, so this is a degradation the owner
+    /// should be able to see in Home Assistant.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub storage: Option<String>,
+    /// Decoded photos ready to show, including the one on screen.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub buffered_photos: Option<u8>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]

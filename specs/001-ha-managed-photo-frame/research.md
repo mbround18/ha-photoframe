@@ -534,3 +534,48 @@ photos off-device, so it breaks Principles II and VI.
 - [ESP-IDF: ESP32-P4 JPEG peripheral](https://docs.espressif.com/projects/esp-idf/en/stable/esp32p4/api-reference/peripherals/jpeg.html)
 - [espressif/esp-hosted-mcu: ESP32-P4 Function EV board notes](https://github.com/espressif/esp-hosted-mcu/blob/main/docs/esp32_p4_function_ev_board.md)
 - Vendor board bundle under `/source/JC8012P4A1C_I_W_Y/` (BSP headers and IDF 5.5.4 demos) — local, git-ignored
+
+---
+
+## R12. SD card bring-up: LDO power, slot 0, and exFAT
+
+**Decision**: mount the card through the vendored BSP's `bsp_sdcard_mount()`, with
+`CONFIG_BSP_SD_FORMAT_ON_MOUNT_FAIL=y` and FATFS long filenames enabled.
+
+**Verified on hardware 2026-08-25**: `SD card mounted at /sdcard (60350 MB)` — the 64 GB card
+partitioned, formatted to FAT32, and mounted.
+
+Three facts about this board, none of which are guessable from the schematic alone. All came from
+the manufacturer's own `esp_brookesia_phone` demo sources under `source/`:
+
+1. **The SD rail is powered by an on-chip LDO on channel 4.** It must be brought up with
+   `sd_pwr_ctrl_new_on_chip_ldo()` before any transaction. Skip it and the card never answers —
+   indistinguishable from an empty slot, which is precisely the state this feature must report
+   accurately (FR-030).
+2. **The card is on SDMMC slot 0, routed through the IO MUX**, so its pins are fixed in silicon.
+   Driving it through the GPIO matrix with an explicit pin list (`SdMmcHostDriver::new_4bits`)
+   targets the wrong mechanism entirely.
+3. **A stock 64 GB SDXC card ships exFAT, which ESP-IDF 5.5.3 cannot mount** — there is no
+   `CONFIG_FATFS_*EXFAT*` symbol in the tree. FatFs returns error 13 (`NO_FILESYSTEM`), which reads
+   like a dead card but is not. Format-on-mount-failure turns this into a self-healing path for any
+   fresh card. **This erases the card, and was approved by the owner** on the grounds that it is a
+   dedicated photo cache.
+
+**Two dead ends, both of which compiled:**
+
+- Hand-building `sdmmc_host_t` from the raw bindings crashes at `MEPC: 0x00000000`. The struct is
+  largely function pointers that ESP-IDF fills via the `SDMMC_HOST_DEFAULT()` **macro**, and bindgen
+  does not surface macros. It links cleanly and jumps to null on the first transaction.
+- The BSP copy under `common_components/` **declares and calls `bsp_sdcard_get_sdmmc_host` and
+  `bsp_sdcard_sdmmc_get_slot` but never defines them** — the vendor's SD path does not link as
+  shipped. The complete definitions exist only in the `esp_brookesia_phone` copy of the same file,
+  and are now carried as a marked local addition in the vendored component.
+
+**Methodological note, and a direct echo of R11**: the owner's suggestion to check `./source` is what
+resolved this. Two rounds of plausible-looking Rust had already failed. **When this board behaves
+unexpectedly, read the vendor's demo sources before reasoning from first principles** — they encode
+board facts that no amount of API-level inference will recover.
+
+**Also corrected**: the BSP guards its long-filename warning on `CONFIG_FATFS_LONG_FILENAMES`, which
+is a Kconfig *choice* rather than a config symbol. The test can never be satisfied, so the warning
+fires even with long filenames enabled. Repointed at `CONFIG_FATFS_LFN_NONE`.

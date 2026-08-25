@@ -25,8 +25,8 @@ pub use controller_state::{
     ControllerStateSnapshot, controller_state_snapshot, set_controller_phase,
 };
 pub use rendered_image::{
-    RenderedImage, RenderedImageSnapshot, clear_rendered_image, rendered_image_snapshot,
-    set_rendered_image,
+    BUFFER_CAPACITY, RenderedImage, RenderedImageSnapshot, advance_rendered_image,
+    clear_rendered_image, push_rendered_image, rendered_image_snapshot, set_rendered_image,
 };
 
 #[cfg(target_os = "espidf")]

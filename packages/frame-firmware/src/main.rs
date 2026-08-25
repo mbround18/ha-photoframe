@@ -12,6 +12,9 @@ use esp_idf_svc::nvs::EspDefaultNvsPartition;
 mod runtime;
 
 #[cfg(target_os = "espidf")]
+mod sd_card;
+
+#[cfg(target_os = "espidf")]
 mod setup_state_store;
 
 #[cfg(target_os = "espidf")]
@@ -24,6 +27,10 @@ unsafe extern "C" {
 #[cfg(target_os = "espidf")]
 // The control channel is hosted on Home Assistant's own web server, so it
 // shares port 8123 rather than opening a second listener.
+/// How often the frame reports its health. Slow on purpose: nothing here
+/// changes quickly, and the frame's job is showing photos, not chattering.
+const HEALTH_REPORT_INTERVAL_SECS: u64 = 60;
+
 const DEFAULT_CONTROL_PLANE_URL: &str = "ws://homeassistant.local:8123/api/photoframe_bridge/ws";
 
 /// Where to look for the Home Assistant control plane.
@@ -314,6 +321,20 @@ fn run() -> anyhow::Result<()> {
         &app_state,
     );
 
+    // Bring up the SD card before the control plane, so the first thing we tell
+    // Home Assistant about ourselves already includes its state. A missing card
+    // is degraded, not fatal: the frame runs from its in-memory buffer instead
+    // (Principle VII, FR-030).
+    let sd_status = sd_card::mount();
+    if !sd_status.is_ready() {
+        tracing::warn!(
+            target: "frame_firmware",
+            sd_status = sd_status.summary(),
+            "running without an SD cache; photos will not survive a reboot or a \
+             prolonged Home Assistant outage"
+        );
+    }
+
     // Connect to the Home Assistant control plane. The runtime owns its own
     // reconnect loop, so a controller that is down, restarting, or not yet
     // configured is not an error here -- the frame simply keeps retrying while
@@ -390,6 +411,38 @@ fn run() -> anyhow::Result<()> {
                 tracing::error!(target: "frame_firmware", "invalid BLE name: {error}");
             }
         }
+    }
+
+    // Tell Home Assistant how we are doing, starting immediately so a missing
+    // SD card surfaces on the device page rather than only in the logs
+    // (FR-030). The panel never shows any of this -- an adopted frame shows
+    // photos and nothing else (Principle VIII).
+    {
+        let health_runtime = thin_client_runtime.status_sender();
+        let sd_summary = sd_status.summary();
+        std::thread::spawn(move || {
+            loop {
+                // A snapshot failure means the store lock is poisoned, which
+                // says nothing about the card; report what we do know.
+                let buffered = frame_ui::rendered_image_snapshot()
+                    .map(|snapshot| snapshot.buffered.min(u8::MAX as usize) as u8)
+                    .ok();
+                let health = frame_core::DeviceHealth {
+                    cpu_temp_millidegrees: None,
+                    screen_status: None,
+                    storage: Some(sd_summary.clone()),
+                    buffered_photos: buffered,
+                };
+                if let Err(error) =
+                    health_runtime.send_status(frame_core::OutboundStatusMessage::Health(health))
+                {
+                    // Not worth escalating: the runtime reconnects on its own and
+                    // the next tick carries the same information.
+                    tracing::debug!(target: "frame_firmware", "health report not sent: {error}");
+                }
+                std::thread::sleep(std::time::Duration::from_secs(HEALTH_REPORT_INTERVAL_SECS));
+            }
+        });
     }
 
     rom_print(b"frame-firmware: entering UI run loop\r\n\0");

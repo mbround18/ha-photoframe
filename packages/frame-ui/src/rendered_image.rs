@@ -65,16 +65,28 @@ impl RenderedImage {
     }
 }
 
+/// How many decoded photos the frame keeps ready.
+///
+/// One is what is on screen; the rest are the next ones up, already decoded so
+/// a transition never waits on a download or a JPEG decode (FR-024). Each costs
+/// 2 MB of PSRAM at 1280x800 RGB565, against 32 MB fitted, so three is
+/// comfortable. It also means the frame has something to show for a couple of
+/// rotations if Home Assistant goes away mid-slideshow.
+pub const BUFFER_CAPACITY: usize = 3;
+
 #[derive(Clone, Debug)]
 pub struct RenderedImageSnapshot {
     pub image: Option<RenderedImage>,
     /// Bumped on every change so callers can tell "same photo" from "new photo"
     /// without comparing megabytes of pixels.
     pub generation: u64,
+    /// How many decoded photos are ready, including the one on screen.
+    pub buffered: usize,
 }
 
 struct State {
-    image: Option<RenderedImage>,
+    /// Front is the photo currently on screen; the rest are queued behind it.
+    buffer: std::collections::VecDeque<RenderedImage>,
     generation: u64,
 }
 
@@ -83,26 +95,69 @@ static STATE: OnceLock<Mutex<State>> = OnceLock::new();
 fn state() -> &'static Mutex<State> {
     STATE.get_or_init(|| {
         Mutex::new(State {
-            image: None,
+            buffer: std::collections::VecDeque::with_capacity(BUFFER_CAPACITY),
             generation: 0,
         })
     })
 }
 
+/// Queue a decoded photo behind whatever is on screen.
+///
+/// The oldest queued photo is dropped once the buffer is full, so a controller
+/// that pushes faster than the frame advances cannot grow memory without bound.
+pub fn push_rendered_image(image: RenderedImage) -> Result<()> {
+    let mut guard = state()
+        .lock()
+        .map_err(|_| anyhow::anyhow!("rendered image state poisoned"))?;
+
+    if guard.buffer.len() >= BUFFER_CAPACITY {
+        // Drop from the back: the front is on screen, and the most recently
+        // queued photo is the one most likely to be wanted next.
+        guard.buffer.pop_back();
+    }
+    guard.buffer.push_back(image);
+
+    // Only a change to the visible photo counts as a new generation; queueing
+    // behind it must not force a redraw.
+    if guard.buffer.len() == 1 {
+        guard.generation = guard.generation.wrapping_add(1);
+    }
+    Ok(())
+}
+
+/// Replace whatever is on screen immediately.
 pub fn set_rendered_image(image: RenderedImage) -> Result<()> {
     let mut guard = state()
         .lock()
         .map_err(|_| anyhow::anyhow!("rendered image state poisoned"))?;
-    guard.image = Some(image);
+    guard.buffer.clear();
+    guard.buffer.push_back(image);
     guard.generation = guard.generation.wrapping_add(1);
     Ok(())
+}
+
+/// Move to the next queued photo, if there is one.
+///
+/// Returns false when the buffer holds only the current photo, which is the
+/// signal that the frame is running dry and needs more from the controller.
+pub fn advance_rendered_image() -> Result<bool> {
+    let mut guard = state()
+        .lock()
+        .map_err(|_| anyhow::anyhow!("rendered image state poisoned"))?;
+
+    if guard.buffer.len() < 2 {
+        return Ok(false);
+    }
+    guard.buffer.pop_front();
+    guard.generation = guard.generation.wrapping_add(1);
+    Ok(true)
 }
 
 pub fn clear_rendered_image() -> Result<()> {
     let mut guard = state()
         .lock()
         .map_err(|_| anyhow::anyhow!("rendered image state poisoned"))?;
-    guard.image = None;
+    guard.buffer.clear();
     guard.generation = guard.generation.wrapping_add(1);
     Ok(())
 }
@@ -112,7 +167,8 @@ pub fn rendered_image_snapshot() -> Result<RenderedImageSnapshot> {
         .lock()
         .map_err(|_| anyhow::anyhow!("rendered image state poisoned"))?;
     Ok(RenderedImageSnapshot {
-        image: guard.image.clone(),
+        image: guard.buffer.front().cloned(),
         generation: guard.generation,
+        buffered: guard.buffer.len(),
     })
 }

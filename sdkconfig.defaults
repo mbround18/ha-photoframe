@@ -68,3 +68,13 @@ CONFIG_FREERTOS_HZ=1000
 # writes into the buffer currently being scanned out; with two it swaps, which is
 # the path the vendor exercises and the one their demo is known to display with.
 CONFIG_BSP_LCD_DPI_BUFFER_NUMS=2
+
+# SD card cache. Long filenames are on because prepared photos are named by
+# content hash and the 8.3 form would collide.
+CONFIG_FATFS_LFN_HEAP=y
+CONFIG_FATFS_MAX_LFN=255
+# The card is a dedicated photo cache, so a card we cannot mount (a stock SDXC
+# card arrives exFAT, which ESP-IDF cannot read) is formatted to FAT32 rather
+# than left unusable. Owner-approved: this erases the card.
+CONFIG_BSP_SD_FORMAT_ON_MOUNT_FAIL=y
+CONFIG_FATFS_ALLOC_PREFER_EXTRAM=y

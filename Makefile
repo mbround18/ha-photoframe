@@ -1,4 +1,7 @@
-FLASH_PORT ?= /dev/ttyUSB0
+# The board enumerates as ttyACM* through its built-in USB-serial-JTAG and as
+# ttyUSB* through an external adapter, so take whichever is actually present
+# rather than making every invocation pass FLASH_PORT by hand.
+FLASH_PORT ?= $(firstword $(wildcard /dev/ttyACM0 /dev/ttyUSB0) /dev/ttyUSB0)
 FLASH_BAUD ?= 460800
 MONITOR_BAUD ?= 115200
 FIRMWARE_TARGET := riscv32imafc-esp-espidf

@@ -110,3 +110,23 @@ def test_purge_clears_everything(tmp_path) -> None:
 
     assert store.purge() == 3
     assert store.entries() == []
+
+
+def test_buffer_capacity_is_documented_on_the_firmware_side() -> None:
+    """The frame holds a small number of decoded photos, not one and not many.
+
+    This mirrors `frame_ui::rendered_image::BUFFER_CAPACITY`. If that changes,
+    this is the reminder that Home Assistant's push cadence should change with
+    it: pushing faster than the frame drains simply discards work.
+    """
+    from pathlib import Path
+
+    src = (
+        Path(__file__).resolve().parents[1]
+        / "packages/frame-ui/src/rendered_image.rs"
+    ).read_text()
+
+    assert "pub const BUFFER_CAPACITY: usize = 3;" in src, (
+        "firmware photo buffer capacity changed; revisit how many photos Home "
+        "Assistant keeps pushed ahead"
+    )

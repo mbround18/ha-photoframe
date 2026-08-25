@@ -41,6 +41,9 @@ class FrameSession:
     firmware_version: str | None = None
     panel: tuple[int, int] | None = None
     protocol_version: int = 1
+    #: State the frame reports about itself.
+    storage: str | None = None
+    buffered_photos: int | None = None
     _socket: web.WebSocketResponse | None = field(default=None, repr=False)
 
     @property
@@ -138,6 +141,14 @@ class ControlServer:
         kind = message.get("type")
         if kind == "connected":
             session.device_name = message.get("device_name") or session.device_name
+        elif kind == "health":
+            health = message.get("health") or message
+            storage = health.get("storage")
+            if isinstance(storage, str):
+                session.storage = storage
+            buffered = health.get("buffered_photos")
+            if isinstance(buffered, int):
+                session.buffered_photos = buffered
         elif kind == "hello":
             panel = message.get("panel") or {}
             width, height = panel.get("width"), panel.get("height")

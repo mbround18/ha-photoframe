@@ -12,5 +12,9 @@
  * so CPU writes have to be flushed before each transfer. */
 #include "esp_cache.h"
 
+/* bsp_sdcard_mount: sdmmc_host_t is mostly function pointers that ESP-IDF fills
+ * in via a SDMMC_HOST_DEFAULT() macro, which bindgen cannot surface. Letting the
+ * BSP build the host avoids hand-assembling it -- a zeroed struct compiles and
+ * then jumps to address zero. */
 #include "bsp/display.h"
 #include "bsp/esp32_p4_function_ev_board.h"

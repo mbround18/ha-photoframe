@@ -3,7 +3,7 @@ use frame_core::{
     AppState, ControlEvent, ControllerPhase, DeviceCommand, OutboundStatusMessage, RenderRequest,
     ScreenStatus, parse_control_message,
 };
-use frame_ui::{RenderedImage, clear_rendered_image, set_controller_phase, set_rendered_image};
+use frame_ui::{RenderedImage, clear_rendered_image, push_rendered_image, set_controller_phase};
 use std::net::TcpStream;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, TryRecvError};
 use std::thread::{self, JoinHandle};
@@ -162,6 +162,28 @@ impl ThinClientRuntime {
     }
 
     pub fn send_status(&self, message: OutboundStatusMessage) -> anyhow::Result<()> {
+        self.status_sender().send_status(message)
+    }
+
+    /// A cloneable handle for reporting status from another thread.
+    ///
+    /// The runtime itself owns join handles and so cannot be cloned; background
+    /// reporters only ever need the outbound queue.
+    pub fn status_sender(&self) -> StatusSender {
+        StatusSender {
+            transport_tx: self.transport_tx.clone(),
+        }
+    }
+}
+
+/// Send-only view of the control plane, for background reporters.
+#[derive(Clone)]
+pub struct StatusSender {
+    transport_tx: Sender<TransportCommand>,
+}
+
+impl StatusSender {
+    pub fn send_status(&self, message: OutboundStatusMessage) -> anyhow::Result<()> {
         self.transport_tx
             .send(TransportCommand::SendStatus(message))
             .context("failed to queue outbound status message")
@@ -235,7 +257,9 @@ impl RenderExecutor for MediaRenderExecutor {
             .into_rgb8();
         let (width, height) = decoded.dimensions();
 
-        set_rendered_image(RenderedImage::from_rgb8(width, height, decoded.as_raw())?)
+        // Queue rather than replace: the frame keeps a few decoded photos ready
+        // so a transition never waits on a download or a decode (FR-024).
+        push_rendered_image(RenderedImage::from_rgb8(width, height, decoded.as_raw())?)
             .context("failed to publish rendered image to the UI")?;
 
         tracing::info!(

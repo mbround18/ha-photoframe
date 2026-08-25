@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <assert.h>
 #include <string.h>
 #include "sdkconfig.h"
 #include "driver/gpio.h"
@@ -121,6 +122,41 @@ sdmmc_card_t *bsp_sdcard_get_handle(void)
 {
     return bsp_sdcard;
 }
+
+/* ---- ha-photoframe local addition ----------------------------------------
+ * The vendor's BSP declares and calls these two helpers but never defines
+ * them anywhere in the shipped bundle -- their SD path does not link as
+ * delivered.  The bodies below are the vendor's own, lifted verbatim from the
+ * complete copy of this file that ships with their esp_brookesia_phone demo
+ * (source/.../JC8012P4A1C_I_W_Y_Old_Panel/esp_brookesia_phone/components/
+ * esp32_p4_function_ev_board/esp32_p4_function_ev_board.c).
+ *
+ * Note the slot: the card sits on SDMMC slot 0, which is routed through the
+ * IO MUX, so the pins are fixed in silicon and deliberately not named here.
+ * ------------------------------------------------------------------------- */
+void bsp_sdcard_get_sdmmc_host(const int slot, sdmmc_host_t *config)
+{
+    assert(config);
+
+    sdmmc_host_t host_config = SDMMC_HOST_DEFAULT();
+    host_config.slot = slot;
+    host_config.max_freq_khz = SDMMC_FREQ_HIGHSPEED;
+
+    memcpy(config, &host_config, sizeof(sdmmc_host_t));
+}
+
+void bsp_sdcard_sdmmc_get_slot(const int slot, sdmmc_slot_config_t *config)
+{
+    (void)slot;
+    assert(config);
+    memset(config, 0, sizeof(sdmmc_slot_config_t));
+
+    /* SD card is connected to Slot 0 pins. Slot 0 uses IO MUX, so not specifying the pins here */
+    config->cd = SDMMC_SLOT_NO_CD;
+    config->wp = SDMMC_SLOT_NO_WP;
+    config->width = 4;
+    config->flags = 0;
+}
 esp_err_t bsp_sdcard_sdmmc_mount(bsp_sdcard_cfg_t *cfg)
 {
     sdmmc_host_t sdhost = {0};
@@ -160,7 +196,7 @@ esp_err_t bsp_sdcard_sdmmc_mount(bsp_sdcard_cfg_t *cfg)
     }
     cfg->host->pwr_ctrl_handle = pwr_ctrl_handle;
 
-#if !CONFIG_FATFS_LONG_FILENAMES
+#if defined(CONFIG_FATFS_LFN_NONE)
     ESP_LOGW(TAG, "Warning: Long filenames on SD card are disabled in menuconfig!");
 #endif
 
