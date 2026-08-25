@@ -1,5 +1,11 @@
 # Hardware Specification: JC8012P4A1C_I_W
 
+> **Note (2026-08-25):** this document was transcribed from the vendor PDF and originally misread
+> the package-pin column as GPIO numbers in two places (backlight and touch reset), and described
+> the touch I2C bus as separate when it is not. Those entries are corrected below.
+> **[docs/Hardware-Reference.md](./Hardware-Reference.md) is the authoritative pinout**, derived
+> from the schematics and the vendor's working demo code.
+
 [Product Link](https://www.aliexpress.us/w/wholesale-JC8012P4A1C_I_W.html?spm=a2g0o.home.search.0)
 
 **Manufacturer:** Shenzhen Jingcai Intelligent Co., Ltd [cite: 1, 2]
@@ -31,8 +37,10 @@ The module features a military-grade 10.1-inch color screen designed for long-te
 
 ## 3. Touch Interface
 
-- **Type:** Capacitive Touch Screen (SKU: JC8012P4A1C_I_W_Y / Y1) [cite: 34]
-- **Interface:** I2C (`RTC_CLK/SCL1`, `RTC_DAT/SDA1`)
+- **Type:** Capacitive Touch Screen, **GSL3680** controller (SKU: JC8012P4A1C_I_W_Y / Y1) [cite: 34]
+- **Interface:** I2C on `GPIO8` (SCL) / `GPIO7` (SDA) — the nets `RTC_CLK/SCL1` and
+  `RTC_DAT/SDA1` are alias names for those same two pins, **not** a second bus. Shared with the
+  ES8311 codec, the RX8025T RTC, the camera, and the expansion headers.
 - **Connection:** FPC Connector (CTP-FPC) [cite: 60]
 
 ## 4. Audio Subsystem
@@ -73,9 +81,9 @@ The module features a military-grade 10.1-inch color screen designed for long-te
 | Function            | Pin Name | Note                        |
 | :------------------ | :------- | :-------------------------- |
 | **LCD Reset**       | GPIO27   | Controls `LCD_RST` sequence |
-| **LCD Backlight**   | GPIO25   | Controls `LCD_PWM`          |
+| **LCD Backlight**   | GPIO23   | Controls `LCD_PWM` (drives the MP3202 boost `EN`) |
 | **Touch Interrupt** | GPIO21   | `TOUCH_INT`                 |
-| **Touch Reset**     | GPIO24   | `TOUCH_RST`                 |
+| **Touch Reset**     | GPIO22   | `TOUCH_RST`                 |
 
 ### Audio (ESP32-P4 -> ES8311 Codec)
 

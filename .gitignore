@@ -11,3 +11,10 @@ tmp/
 # Virtual environments
 .venv
 .env
+
+# Vendor board documentation bundle (schematics, datasheets, demos, burn tools).
+# Not ours to redistribute; kept locally for reference only. Never commit.
+/source
+
+# rustc internal-compiler-error dumps
+rustc-ice-*.txt

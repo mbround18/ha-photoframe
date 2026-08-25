@@ -9,12 +9,19 @@ This checklist turns the confirmed manufacturer hardware facts for the JC8012P4A
 - Display panel: JD9365 over MIPI DSI
 - Native panel resolution: 800 x 1280 portrait
 - External memory: 32 MB PSRAM
-- Touch: capacitive touch over I2C
+- Touch: **GSL3680** capacitive controller over I2C (the upstream BSP's GT911 will not drive it)
 - Board-level display/touch pins:
   - LCD reset: GPIO27
-  - LCD backlight PWM: GPIO25
+  - LCD backlight PWM: GPIO23
   - Touch interrupt: GPIO21
-  - Touch reset: GPIO24
+  - Touch/codec/RTC I2C: GPIO8 (SCL) / GPIO7 (SDA) — one shared bus
+  - BOOT button (usable as a physical input): GPIO35, active low
+  - WS2812 status LED: GPIO26
+  - SD card: GPIO39-44, VDD from `ESP_LDO_VO4`
+  - Touch reset: GPIO22
+
+> Pin values verified against the schematics on 2026-08-25. See
+> [Hardware-Reference.md](./Hardware-Reference.md) for the full map and the corrections applied.
 
 ## Bring-Up Order
 
@@ -24,7 +31,7 @@ The intended order is display power and panel control first, then visible test o
 
 - Verify BSP initialization succeeds consistently through the raw display path.
 - Verify panel reset sequencing matches the board support package for GPIO27.
-- Verify backlight comes on through the BSP or PWM path on GPIO25.
+- Verify backlight comes on through the BSP or PWM path on GPIO23 (drives the MP3202 boost `EN`).
 - Verify the panel can accept a known-good raw frame before adding more UI complexity.
 
 Acceptance criteria:
@@ -61,9 +68,10 @@ Acceptance criteria:
 
 ## 4. Touch Controller Bring-Up
 
-- Identify the exact touch controller used on the capacitive panel path.
+- The controller is a **GSL3680**. Vendor the `esp_lcd_touch_gsl3680` driver from the vendor bundle;
+  the stock BSP's GT911 path will not enumerate.
 - Initialize the I2C bus used by the touch controller.
-- Wire touch reset on GPIO24.
+- Wire touch reset on GPIO22.
 - Wire touch interrupt on GPIO21.
 - Convert raw touch coordinates into the same logical orientation used by the UI.
 - Feed pointer events into the embedded Slint window.
