@@ -15,6 +15,13 @@ mod runtime;
 mod setup_state_store;
 
 #[cfg(target_os = "espidf")]
+unsafe extern "C" {
+    /// T056 spike: bring up a connectable BLE peripheral through the C6.
+    /// See packages/frame-firmware/components/frame_ble_spike/.
+    fn frame_ble_spike_start(device_name: *const core::ffi::c_char) -> i32;
+}
+
+#[cfg(target_os = "espidf")]
 const DEFAULT_CONTROL_PLANE_URL: &str = "ws://homeassistant.local:8765/ws";
 
 #[cfg(target_os = "espidf")]
@@ -301,6 +308,48 @@ fn run() -> anyhow::Result<()> {
         default_controller_url = DEFAULT_CONTROL_PLANE_URL,
         "network connected; awaiting Home Assistant adoption support"
     );
+
+    // T056 spike: prove a connectable BLE peripheral works on this board before
+    // committing to Improv-over-BLE provisioning (research.md R3/R9). A failure
+    // here is not fatal -- the spike is diagnostic, and the SoftAP fallback
+    // exists precisely for this outcome.
+    {
+        let advert_name = app_state
+            .device_id
+            .as_deref()
+            .and_then(|id| id.rsplit('-').next())
+            .map(|suffix| {
+                let tail = if suffix.len() >= 4 {
+                    &suffix[suffix.len() - 4..]
+                } else {
+                    suffix
+                };
+                format!("PhotoFrame-{}", tail.to_uppercase())
+            })
+            .unwrap_or_else(|| "PhotoFrame".to_string());
+
+        match std::ffi::CString::new(advert_name.clone()) {
+            Ok(name) => {
+                let rc = unsafe { frame_ble_spike_start(name.as_ptr()) };
+                if rc == 0 {
+                    tracing::info!(
+                        target: "frame_firmware",
+                        advert_name = advert_name.as_str(),
+                        "T056 spike: BLE peripheral started"
+                    );
+                } else {
+                    tracing::error!(
+                        target: "frame_firmware",
+                        rc,
+                        "T056 spike: BLE peripheral failed to start"
+                    );
+                }
+            }
+            Err(error) => {
+                tracing::error!(target: "frame_firmware", "invalid BLE name: {error}");
+            }
+        }
+    }
 
     rom_print(b"frame-firmware: entering UI run loop\r\n\0");
 

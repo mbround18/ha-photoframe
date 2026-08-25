@@ -215,10 +215,24 @@ Transport used :: SDIO only
 plus `./main/slave_bt.c`, `esp_bt_controller_init`, `esp_bt_controller_enable(ESP_BT_MODE_BLE)`,
 `hci_driver_vhci_host_tx`, and `hci_transport_init`.
 
-**This means BLE is available on this board without reflashing the C6.** The BLE controller lives
-on the C6; a NimBLE *host* runs on the P4 and exchanges HCI over the SDIO link. This substantially
-de-risks Improv-over-BLE provisioning — it moves from "unknown, may be impossible" to "enable the
-right Kconfig options and verify".
+**Confirmed on hardware 2026-08-25.** BLE works on this board without reflashing the C6. The
+transport handshake reports `capabilities: 0xd` (`WLAN` + `HCI Over SDIO` + `BLE only`), a NimBLE
+host on the P4 syncs with the controller on the C6, and the frame advertises, is discoverable from
+an independent Bluetooth adapter at -43 dBm, and accepts connections — with Wi-Fi up at the same
+time. The BLE address (`98:88:e0:…`) is the C6's own radio, distinct from the P4's Wi-Fi MAC.
+
+**One caveat.** The board ships ESP-Hosted slave firmware **2.1.0** while the host component is
+**2.12.0**:
+
+```
+W: Version mismatch: Host [2.12.0] > Co-proc [2.1.0] ==> Upgrade co-proc to avoid RPC timeouts
+```
+
+`esp_hosted_bt_controller_init()` / `..._enable()` are newer RPCs and return
+`ESP_ERR_NOT_SUPPORTED`. Older slaves bring their BT controller up automatically at boot, so
+treating that as non-fatal and going straight to `nimble_port_init()` works. Do not depend on those
+RPCs. The vendor's `JC-C6-slave_v2.3.2.bin` is also older than 2.12, so flashing it would not close
+the gap.
 
 Note the C6's own UART is **not** wired to the P4 — it only reaches header CN5 — so HCI-over-UART
 is not an option. SDIO is the only path.
@@ -259,6 +273,28 @@ Header **CN5** carries `VCC3V3`, `GND`, `C6_U0TXD`, `C6_U0RXD`, `C6_IO9` (boot s
 `C6_CHIP_PU`. Capture the stock image before overwriting anything.
 
 ---
+
+## 4a. Boot-time gotchas found on hardware
+
+**The legacy I2C driver aborts the boot.** ESP-IDF's `driver` component always compiles the legacy
+I2C driver, and at least one managed component still references it. The new `i2c_master` driver's
+constructor detects both and calls `abort()`, producing a boot loop:
+
+```
+E (1273) i2c: CONFLICT! driver_ng is not allowed to be used with this old driver
+abort() was called at PC 0x400fbd47 on core 0
+```
+
+Everything this firmware actually uses is on the new driver, so the two are never mixed at runtime.
+Set `CONFIG_I2C_SKIP_LEGACY_CONFLICT_CHECK=y`.
+
+**The partition CSV path cannot be relative.** ESP-IDF resolves
+`CONFIG_PARTITION_TABLE_CUSTOM_FILENAME` against its own generated project directory, not the repo,
+so the path must be absolute — and therefore cannot be committed. The Makefile generates
+`target/sdkconfig.partition.generated` at build time instead.
+
+**The panel driver is wrong in the upstream BSP** — see the next section. The frame boots and runs,
+but the display does not receive a correct init sequence.
 
 ## 5. Power
 

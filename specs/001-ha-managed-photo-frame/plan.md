@@ -167,7 +167,7 @@ to spec user stories.
 |---|---|---|---|
 | M0 | Groundwork: fix the `sdkconfig.defaults` absolute path, move the component to the repo root, add `hacs.json`, wire hassfest + HACS + cargo CI, delete the on-device OAuth | — | Green CI; workspace builds; no `oauth` symbols remain |
 | M1 | SD card + hardware photo path: mount FAT, hw JPEG decode, PPA present, cross-fade | US3 | Photograph of a correctly-oriented photo from the SD card; serial timing under 100 ms |
-| M2 | **Spike**: enable + verify BLE GATT peripheral on P4 via esp-hosted-mcu (shipped C6 firmware already exposes HCI over SDIO) | US1 | Phone scanner sees the advertisement and survives a 30-min soak, or a written go/no-go for the SoftAP fallback |
+| M2 | ~~**Spike**: BLE GATT peripheral on P4 via ESP-Hosted~~ **DONE 2026-08-25 — PASS** | US1 | ✅ Advertises as `PhotoFrame-B566`, seen from an independent adapter at -43 dBm, accepts connections. [research.md](./research.md) R10 |
 | M3 | Adoption: Improv (or fallback) provisioning, mDNS announcement, HA zeroconf config flow, frame token | US1 | Factory-fresh frame to adopted device on video, under 10 minutes |
 | M4 | Control channel + entities: config-entry migration, WebSocket claim, image/sensor/switch/number/select/button | US5 | Every control exercised from HA and from an automation |
 | M5 | Provider seam + `sample` + `media_source` providers, render pipeline, prepared-photo view | US2, US6 | Photos from a local media source on the panel; architecture test passes |
@@ -201,7 +201,7 @@ Carried from research.md so tasks can be written without re-reading it.
 
 | Violation | Why Needed | Simpler Alternative Rejected Because |
 |---|---|---|
-| Two provisioning mechanisms planned (Improv BLE, with a Wi-Fi-only SoftAP fallback) rather than one | Principle V demands app-free adoption. Examining the vendor bundle confirmed the shipped C6 firmware exposes `HCI Over SDIO` and that P4 GPIO54 can reset the C6 (R3, R9), so BLE is very likely to work — but no vendor demo enables `CONFIG_BT_ENABLED`, so HCI-over-SDIO stability on this board is still unexercised. | Shipping BLE only: an unstable HCI link would strand adoption with no path forward. Shipping SoftAP only: a strictly worse experience than the hardware supports, and it shows a portal the owner explicitly did not want. The fallback is specified but built **only if** the M2 spike fails, so in the expected case no extra code ships. |
+| ~~Two provisioning mechanisms~~ **RESOLVED — one mechanism** | The M2 spike passed on hardware (R10), so only Improv over BLE is built. The Wi-Fi-only SoftAP fallback (T059-T061) is cancelled and no extra code ships. | n/a — this entry is retained only to record that the contingency was planned, exercised, and closed. |
 | A C shim component (`frame_photo_render`) alongside Rust firmware | `esp_driver_jpeg` and `esp_driver_ppa` have no Rust bindings, and the existing `frame_embedded_ui` C component already establishes this pattern in the repo. | Writing Rust bindings for both drivers: substantially more work and more unsafe surface than a ~200-line C shim with a narrow, testable interface. |
 
 ## Hardware Facts That Shaped This Plan
@@ -209,7 +209,14 @@ Carried from research.md so tasks can be written without re-reading it.
 Established from the vendor bundle under `/source` and recorded in
 [docs/Hardware-Reference.md](../../docs/Hardware-Reference.md):
 
-- The shipped ESP32-C6 firmware supports **BLE over SDIO**, and GPIO54 lets the P4 reset it.
+- **BLE over SDIO works — verified on hardware.** The frame advertises, is discoverable from an
+  independent Bluetooth adapter, and accepts connections, with Wi-Fi up simultaneously. GPIO54
+  resets the C6, confirmed in the boot log. One caveat: the board's ESP-Hosted slave firmware is
+  2.1.0 against a 2.12.0 host, so the newer BT-init RPCs return `ESP_ERR_NOT_SUPPORTED` and must be
+  treated as non-fatal ([research.md](./research.md) R10).
+- **The upstream BSP drives the wrong panel.** It installs an ILI9881C, which does not answer
+  (`ID1: 0x0`). The board needs `esp_lcd_jd9365`. The frame boots and runs, but the display is not
+  correctly driven — this now blocks milestone M1, not just polish.
 - The touch controller is a **GSL3680** the stock BSP cannot drive — so the factory-reset gesture
   uses the **GPIO35 BOOT button**, not touch.
 - There is a **WS2812 RGB LED on GPIO26**, giving the frame a status channel that keeps the panel

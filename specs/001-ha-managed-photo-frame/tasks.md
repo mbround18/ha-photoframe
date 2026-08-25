@@ -104,6 +104,7 @@ display correctly and cross-fade cleanly. No Home Assistant needed (quickstart V
 
 ### Firmware: storage and hardware render path
 
+- [ ] T031a [US3] **Fix the panel driver.** The upstream BSP installs an **ILI9881C** for `CONFIG_BSP_LCD_TYPE_1280_800`, but this board has a **JD9365** — confirmed on hardware, where the panel does not answer (`ili9881c: ID1: 0x0, ID2: 0x0, ID3: 0x0`) even though the backlight lights. Add `esp_lcd_jd9365` and drive the panel with `JD9365_PANEL_BUS_DSI_2CH_CONFIG()` / `JD9365_800_1280_PANEL_60HZ_DPI_CONFIG()`, DPHY LDO channel 3 at 2500 mV, reset on GPIO27, as the vendor's `video_lcd_display` demo does. **Nothing visual can be validated until this lands** ([Hardware-Reference.md](../../docs/Hardware-Reference.md) §6)
 - [ ] T032 [US3] Create `packages/frame-firmware/components/frame_photo_render/` as a C component with `CMakeLists.txt` and `idf_component.yml`, depending on `esp_driver_jpeg`, `esp_driver_ppa`, and `esp_lcd`
 - [ ] T033 [US3] Implement hardware JPEG decode in `frame_photo_render.c`: `jpeg_decoder_get_info` to read dimensions, `jpeg_alloc_decoder_mem` for aligned buffers, decode to RGB565, honouring the 16-byte output padding documented in [research.md](./research.md) R4
 - [ ] T034 [US3] Implement PPA scale/rotate/present in `frame_photo_render.c`, driving the panel from the decoded buffer without any CPU-side rotation (replacing the software rotate in `frame_embedded_ui.c`)
@@ -149,18 +150,22 @@ demonstrable on its own.
 
 ### M2: The BLE decision gate
 
-- [ ] T056 [US1] **SPIKE — DECISION GATE**: bring up a connectable BLE GATT peripheral on the ESP32-P4 through the ESP32-C6. The shipped C6 firmware already advertises `HCI Over SDIO` and contains `slave_bt.c`, so this is enable-and-verify, not feasibility ([research.md](./research.md) R3, R9). Set `CONFIG_BT_ENABLED=y` plus the NimBLE host and ESP-Hosted BT transport; keep the SDIO pin map (D0-D3=14-17, CLK=18, CMD=19) and `CONFIG_ESP_HOSTED_GPIO_SLAVE_RESET_SLAVE=54`, which is correct on this board because P4 GPIO54 drives the C6 `EN` pin. Soak advertising for 30 minutes to check HCI-over-SDIO stability — no vendor demo enables BT, so this path is supported but unexercised. **Evidence**: serial log plus a phone-scanner screenshot
-- [ ] T057 [US1] Record the spike outcome in `specs/001-ha-managed-photo-frame/research.md` as a dated go/no-go, then take **exactly one** of T058 or T059-T061
+- [x] T056 [US1] **SPIKE — DECISION GATE**: bring up a connectable BLE GATT peripheral on the ESP32-P4 through the ESP32-C6. The shipped C6 firmware already advertises `HCI Over SDIO` and contains `slave_bt.c`, so this is enable-and-verify, not feasibility ([research.md](./research.md) R3, R9). Set `CONFIG_BT_ENABLED=y` plus the NimBLE host and ESP-Hosted BT transport; keep the SDIO pin map (D0-D3=14-17, CLK=18, CMD=19) and `CONFIG_ESP_HOSTED_GPIO_SLAVE_RESET_SLAVE=54`, which is correct on this board because P4 GPIO54 drives the C6 `EN` pin. Soak advertising for 30 minutes to check HCI-over-SDIO stability — no vendor demo enables BT, so this path is supported but unexercised. **Evidence**: serial log plus a phone-scanner screenshot
+- [x] T057 [US1] Record the spike outcome in `specs/001-ha-managed-photo-frame/research.md` as a dated go/no-go, then take **exactly one** of T058 or T059-T061.
+      **RESULT 2026-08-25: GO.** Verified on hardware — the frame advertises as `PhotoFrame-B566`,
+      is visible from an independent Bluetooth adapter at -43 dBm, and accepts connections
+      (`BLE connect: status=0`), with Wi-Fi up simultaneously. See [research.md](./research.md) R10.
+      **Build Branch A (T058). Do not build Branch B.**
 
 ### Branch A — spike passed (preferred)
 
-- [ ] T058 [US1] Implement the Improv Wi-Fi BLE GATT service in `packages/frame-net/src/improv_ble.rs`: service UUID `00467768-6228-2272-4663-277478268000`, the five characteristics, and the `authorized → provisioning → provisioned` state machine from [discovery.md](./contracts/discovery.md), returning `unable_to_connect` on a bad password so the user can retry immediately (FR-002)
+- [ ] T058 [US1] Implement the Improv Wi-Fi BLE GATT service, replacing the spike component `packages/frame-firmware/components/frame_ble_spike/` (which already proves NimBLE-over-ESP-Hosted works and can be extended in place rather than rewritten). Keep the spike's handling of `ESP_ERR_NOT_SUPPORTED` from `esp_hosted_bt_controller_init` — this board's ESP-Hosted slave firmware is 2.1.0 and predates that RPC ([research.md](./research.md) R10). Service in `packages/frame-net/src/improv_ble.rs`: service UUID `00467768-6228-2272-4663-277478268000`, the five characteristics, and the `authorized → provisioning → provisioned` state machine from [discovery.md](./contracts/discovery.md), returning `unable_to_connect` on a bad password so the user can retry immediately (FR-002)
 
-### Branch B — spike failed (fallback; build only if T057 says no-go)
+### Branch B — NOT NEEDED (the T056 spike passed; these are cancelled)
 
-- [ ] T059 [US1] Strip `packages/frame-captive-portal/src/lib.rs` to a single Wi-Fi-join page with a captive-portal redirect, with no other routes
-- [ ] T060 [US1] Raise a `PhotoFrame-XXXX` open SoftAP in `packages/frame-net/src/provisioning.rs`, torn down permanently once Wi-Fi is joined and never re-raised unless the frame is reset
-- [ ] T061 [US1] Add retry-without-reset handling to the fallback page so a wrong password returns the user to network selection (FR-002)
+- [~] T059 [US1] ~~(cancelled - spike passed)~~ Strip `packages/frame-captive-portal/src/lib.rs` to a single Wi-Fi-join page with a captive-portal redirect, with no other routes
+- [~] T060 [US1] ~~(cancelled - spike passed)~~ Raise a `PhotoFrame-XXXX` open SoftAP in `packages/frame-net/src/provisioning.rs`, torn down permanently once Wi-Fi is joined and never re-raised unless the frame is reset
+- [~] T061 [US1] ~~(cancelled - spike passed)~~ Add retry-without-reset handling to the fallback page so a wrong password returns the user to network selection (FR-002)
 
 ### M3: Discovery and adoption (both branches)
 

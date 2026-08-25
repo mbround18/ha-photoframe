@@ -282,6 +282,91 @@ considered and rejected: they expire, and the frame may fetch long after the URL
 
 ---
 
+## R10. T056 spike result: BLE works on this board — PASS
+
+**Run on hardware 2026-08-25** against the board on `/dev/ttyACM0` (ESP32-P4 rev v1.3,
+MAC `80:f1:b2:d0:b5:66`).
+
+### Outcome: PASS. Take Branch A (Improv over BLE). The SoftAP fallback is not needed.
+
+Evidence, in order:
+
+1. **The co-processor advertises the capability.** ESP-Hosted's transport handshake prints:
+
+   ```
+   transport: capabilities: 0xd
+   transport: Features supported are:
+   transport:      * WLAN
+   transport:        - HCI Over SDIO
+   transport:        - BLE only
+   ```
+
+2. **The NimBLE host runs on the P4 and syncs with the controller on the C6.**
+
+   ```
+   frame_ble_spike: NimBLE host task started
+   frame_ble_spike: BLE host synced; address 98:88:e0:7a:21:a6
+   frame_ble_spike: advertising as "PhotoFrame-B566"
+   ```
+
+   The BLE address `98:88:e0:...` is distinct from the P4's Wi-Fi MAC `80:f1:b2:...`,
+   confirming the radio really is the C6's.
+
+3. **Independently visible from another radio.** A `bluetoothctl le` scan from the
+   development machine (adapter `2C:0D:A7:AE:64:0A`) sees it at -43 to -51 dBm:
+
+   ```
+   [NEW] Device 98:88:E0:7A:21:A6 PhotoFrame-B566
+   ```
+
+4. **It accepts connections**, which is what Improv requires:
+
+   ```
+   frame_ble_spike: BLE connect: status=0
+   ```
+
+5. **Stable.** Zero reboots across the capture window, with Wi-Fi connected at the same time —
+   so BLE and Wi-Fi coexist over the one SDIO link.
+
+### The one real caveat: the C6 slave firmware is old
+
+```
+W: Version mismatch: Host [2.12.0] > Co-proc [2.1.0] ==> Upgrade co-proc to avoid RPC timeouts
+```
+
+The board ships ESP-Hosted slave firmware **2.1.0** while the host component is **2.12.0**.
+Consequence: `esp_hosted_bt_controller_init()` / `..._enable()` return `ESP_ERR_NOT_SUPPORTED`,
+because those RPCs are new. Older slaves bring their BT controller up automatically at boot, so
+**treating that error as non-fatal and proceeding straight to `nimble_port_init()` works** — that
+is exactly what the spike does.
+
+**Decision**: do not depend on the 2.12-era BT RPCs. Treat `ESP_ERR_NOT_SUPPORTED` from them as
+"controller already up" and continue. Revisit only if a concrete problem appears.
+
+Upgrading the co-processor is possible but not required. Two paths, recorded for later:
+
+- **ESP-Hosted slave OTA over the existing SDIO link** — no extra hardware. The full slave project
+  ships in the `esp_hosted` component (`slave/`, with `partitions.esp32c6.csv`), and there is a
+  `host_performs_slave_ota` example. Whether slave 2.1.0 implements the OTA RPC is untested.
+- **Direct UART flashing via header CN5**, which carries `VCC3V3`, `GND`, `C6_U0TXD`, `C6_U0RXD`,
+  `C6_IO9` (boot strap) and `C6_CHIP_PU`. Needs physical access and a USB-UART adapter.
+
+The vendor's `JC-C6-slave_v2.3.2.bin` is also older than 2.12, so flashing it would not close the
+version gap.
+
+### Also confirmed on hardware
+
+- **P4 GPIO54 is the co-processor reset line**, exactly as the schematic said:
+  `sdio_wrapper: GPIOs: CLK[18] CMD[19] D0[14] D1[15] D2[16] D3[17] Slave_Reset[54]`
+- The SDIO pin map in `sdkconfig.defaults` is correct.
+
+### Consequence for the task list
+
+- `T056` **PASS**, `T057` resolved: build **Branch A** (`T058`, Improv BLE GATT service).
+- `T059`-`T061` (the Wi-Fi-only SoftAP fallback) are **not needed** and should not be built.
+
+---
+
 ## R9. Board bring-up facts from the vendor bundle
 
 **[DESIGN-CHANGING]**
@@ -357,6 +442,7 @@ unplugged frame could report "running on battery" rather than silently dying —
 | R6 | What already exists? | Control protocol and HA component skeleton exist — extend them. On-device OAuth gets deleted. |
 | R7 | HACS layout | Move component to root `custom_components/`. hassfest + HACS action in CI. |
 | R8 | Image preparation | Pillow in an executor; blurred-backdrop letterbox for portraits; authenticated HTTP view. |
+| R10 | Does BLE work on this board? | **Yes, verified on hardware.** Advertises, is discoverable from an independent radio, and accepts connections. Branch A confirmed; SoftAP fallback dropped. |
 | R9 | Board pinout and bring-up | Touch is GSL3680 (stock BSP is wrong) → use the **GPIO35 BOOT button** for reset. Backlight is **GPIO23**, touch reset **GPIO22** (spec doc corrected). WS2812 status LED on GPIO26. SD rail needs `ESP_LDO_VO4`. |
 
 ## Sources
