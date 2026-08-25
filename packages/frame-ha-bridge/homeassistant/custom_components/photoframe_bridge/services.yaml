@@ -1,0 +1,64 @@
+display_photo:
+  name: Display Photo
+  description: Send a render request to a connected PhotoFrame device.
+  fields:
+    device_id:
+      required: true
+      selector:
+        text:
+    media_url:
+      required: true
+      selector:
+        text:
+    brightness:
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 100
+    transition_type:
+      required: false
+      selector:
+        select:
+          options:
+            - cut
+            - fade
+            - slide_left
+            - slide_right
+    correlation_id:
+      required: false
+      selector:
+        text:
+
+send_command:
+  name: Send Command
+  description: Send a device command to a connected PhotoFrame device.
+  fields:
+    device_id:
+      required: true
+      selector:
+        text:
+    command:
+      required: true
+      selector:
+        select:
+          options:
+            - reload_ui
+            - reboot
+    correlation_id:
+      required: false
+      selector:
+        text:
+
+claim_device:
+  name: Claim Device
+  description: Mark a connected PhotoFrame as claimed in Home Assistant and notify the frame.
+  fields:
+    device_id:
+      required: true
+      selector:
+        text:
+    display_name:
+      required: false
+      selector:
+        text:

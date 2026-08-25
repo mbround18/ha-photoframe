@@ -17,6 +17,7 @@ export component MainWindow inherits Window {
     in property <string> headline-text: "Welcome";
     in property <string> status-text: "Initializing...";
     in property <string> network-status: "Unprovisioned";
+    in property <string> controller-status: "NotStarted";
     in property <string> detail-text: "Preparing setup environment...";
     in property <string> auth_user_code: "";
     in property <string> auth_verification_uri: "";
@@ -35,24 +36,54 @@ export component MainWindow inherits Window {
 
     // Logic remains identical to your original to ensure backend compatibility
     private property <string> active_screen: screen_override != "" ? screen_override : 
+        app-phase == "Ready" && controller-status != "Connected" ? "ha-syncing" :
         app-phase == "Ready" ? "ready" : 
         (pairing_code != "" && auth_user_code == "" && (local_setup_url != "" || local_setup_ip_url != "")) ? "browser-pairing" : 
         network-status == "Provisioning" ? "wifi-connect" : 
         network-status == "Authorizing" ? "pairing" : 
         app-phase == "Splash" ? "welcome" : "status";
 
-    private property <int> active_step: active_screen == "ready" ? 4 : 
+    private property <int> active_step: active_screen == "ready" ? 5 :
+        active_screen == "ha-syncing" ? 4 :
         (active_screen == "pairing" || active_screen == "browser-pairing") ? 3 : 
         active_screen == "wifi-connect" ? 2 : 
         app-phase == "Setup" ? 1 : 0;
 
+    private property <string> display_status: app-phase == "Ready" && controller-status != "NotStarted"
+        ? controller-status
+        : network-status;
+
+    private property <string> display_status_text:
+        app-phase == "Ready" && controller-status == "Searching"
+            ? "Looking for Home Assistant on your local network."
+        : app-phase == "Ready" && controller-status == "AwaitingConfiguration"
+            ? "Home Assistant found. Finish setup there to start sending photos."
+        : app-phase == "Ready" && controller-status == "Connected"
+            ? "Connected to Home Assistant and waiting for media."
+        : app-phase == "Ready" && controller-status == "Error"
+            ? "Home Assistant connection needs attention."
+        : status-text;
+
+    private property <string> display_detail_text:
+        app-phase == "Ready" && controller-status == "Searching"
+            ? (owner_email != "" ? "Signed in as " + owner_email + ". Searching for your Home Assistant instance now." : "Searching for your Home Assistant instance now.")
+        : app-phase == "Ready" && controller-status == "AwaitingConfiguration"
+            ? (owner_email != "" ? "Signed in as " + owner_email + ". Open Home Assistant to add or configure this frame before it can receive photos." : "Open Home Assistant to add or configure this frame before it can receive photos.")
+        : app-phase == "Ready" && controller-status == "Connected"
+            ? (owner_email != "" ? "Signed in as " + owner_email + ". Home Assistant is connected and can now control what this frame displays." : "Home Assistant is connected and can now control what this frame displays.")
+        : detail-text;
+
     // Hero Text Mappings
     private property <string> hero_title: active_screen == "ready" ? "Frame Ready!" : 
+        active_screen == "ha-syncing" && controller-status == "Searching" ? "Finding Home Assistant" :
+        active_screen == "ha-syncing" ? "Awaiting Home Assistant" :
         active_screen == "browser-pairing" ? "Pair Device" : 
         active_screen == "pairing" ? "Google Sign-in" : 
         active_screen == "wifi-connect" ? "Join Setup Wi-Fi" : "Initializing";
 
     private property <string> hero_body: active_screen == "ready" ? "Your frame is now synced and ready to display your life's best moments." :
+        active_screen == "ha-syncing" && controller-status == "Searching" ? "Your frame is online and signed in. It is now searching for Home Assistant on the same network." :
+        active_screen == "ha-syncing" ? "Home Assistant can see this frame. Open Home Assistant to finish adding it before photos start appearing here." :
         active_screen == "browser-pairing" ? "Your frame is online. Scan the QR code with your phone to open the frame directly, or use the backup pass code if you need it." :
         active_screen == "pairing" ? "Enter the Google code on your phone to grant access to your Photos library." :
         active_screen == "wifi-connect" ? "Connect to the network below to provide your home Wi-Fi credentials." : "Checking hardware and preparing the setup flow...";
@@ -86,8 +117,8 @@ export component MainWindow inherits Window {
 
             SetupSidebar {
                 active-step: root.active_step;
-                network-status: root.network-status;
-                detail-text: root.detail-text;
+                network-status: root.display_status;
+                detail-text: root.display_detail_text;
             }
 
             VerticalLayout {
@@ -109,8 +140,8 @@ export component MainWindow inherits Window {
                     pairing-qr-image: root.pairing-qr-image;
                     pairing-qr-url: root.pairing-qr-url;
                     owner-email: root.owner_email;
-                    network-status: root.network-status;
-                    status-text: root.status-text;
+                    network-status: root.display_status;
+                    status-text: root.display_status_text;
                 }
             }
         }
@@ -149,7 +180,7 @@ export component MainWindow inherits Window {
         }
 
         if root.photos.length == 0 : Text {
-            text: "Waiting for photos...";
+            text: "Waiting for photos from Home Assistant...";
             width: parent.width;
             y: parent.height / 2 - self.height / 2;
             horizontal-alignment: center;

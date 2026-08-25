@@ -1,11 +1,18 @@
 use anyhow::Result;
-use frame_core::{AppState, models::PhotoMetadata};
+use frame_core::{AppState, ControllerPhase, models::PhotoMetadata};
 use qrcodegen::{QrCode, QrCodeEcc};
 use slint::ComponentHandle;
 use slint::{Image, Rgba8Pixel, SharedPixelBuffer, VecModel};
 use std::rc::Rc;
 
+#[cfg(target_os = "espidf")]
+use std::cell::Cell;
+
 use anyhow::anyhow;
+
+#[cfg(target_os = "espidf")]
+use crate::controller_state::controller_state_snapshot;
+use crate::rendered_image::{RenderedImage, rendered_image_snapshot};
 
 #[cfg(target_os = "espidf")]
 use slint::PhysicalSize;
@@ -85,6 +92,7 @@ pub struct UiStateSnapshot {
     pub headline_text: String,
     pub status_text: String,
     pub network_status: String,
+    pub controller_status: String,
     pub detail_text: String,
     pub owner_email: String,
     pub auth_user_code: String,
@@ -104,6 +112,7 @@ impl UiStateSnapshot {
             headline_text: headline_text(state).to_string(),
             status_text: status_text(state).to_string(),
             network_status: state.network_phase.as_str().to_string(),
+            controller_status: state.controller_phase.as_str().to_string(),
             detail_text: detail_text(state),
             owner_email: state.google_user_email().unwrap_or_default().to_string(),
             auth_user_code: state
@@ -202,7 +211,10 @@ fn headline_text(state: &AppState) -> &'static str {
     match state.phase {
         frame_core::AppPhase::Splash => "Welcome home",
         frame_core::AppPhase::Setup => "Let\'s get your frame ready",
-        frame_core::AppPhase::Ready => "Your frame is ready",
+        frame_core::AppPhase::Ready => match state.controller_phase {
+            ControllerPhase::Connected => "Your frame is ready",
+            _ => "Home Assistant setup continues here",
+        },
     }
 }
 
@@ -210,7 +222,23 @@ fn status_text(state: &AppState) -> &'static str {
     match state.phase {
         frame_core::AppPhase::Splash => "Booting up the display and preparing setup.",
         frame_core::AppPhase::Setup => "A few quick steps and your photos will start showing here.",
-        frame_core::AppPhase::Ready => "Connected, signed in, and ready for your library.",
+        frame_core::AppPhase::Ready => match state.controller_phase {
+            ControllerPhase::Connected => {
+                "Connected to Home Assistant and ready for incoming photos."
+            }
+            ControllerPhase::AwaitingConfiguration => {
+                "Home Assistant found. Finish setup from Home Assistant to start sending photos."
+            }
+            ControllerPhase::Searching => {
+                "Looking for Home Assistant on your network."
+            }
+            ControllerPhase::Error(_) => {
+                "Home Assistant connection needs attention."
+            }
+            ControllerPhase::NotStarted => {
+                "Preparing the Home Assistant connection."
+            }
+        },
     }
 }
 
@@ -246,10 +274,28 @@ fn detail_text(state: &AppState) -> String {
             }
         }
         (frame_core::AppPhase::Ready, _) => {
-            if let Some(owner_email) = state.google_user_email() {
-                format!("Signed in as {owner_email}. Your frame is online and ready to play your photo library.")
+            let prefix = if let Some(owner_email) = state.google_user_email() {
+                format!("Signed in as {owner_email}. ")
             } else {
-                "Your frame is online and ready to play your photo library.".to_string()
+                String::new()
+            };
+
+            match &state.controller_phase {
+                ControllerPhase::NotStarted => {
+                    format!("{prefix}Preparing the Home Assistant control plane.")
+                }
+                ControllerPhase::Searching => {
+                    format!("{prefix}Looking for your Home Assistant instance on the local network.")
+                }
+                ControllerPhase::AwaitingConfiguration => {
+                    format!("{prefix}Home Assistant is reachable. Add or configure this frame in Home Assistant to begin sending photos.")
+                }
+                ControllerPhase::Connected => {
+                    format!("{prefix}Home Assistant is connected and this frame is ready to receive photos.")
+                }
+                ControllerPhase::Error(error) => {
+                    format!("{prefix}Home Assistant connection error: {error}")
+                }
             }
         }
     }
@@ -264,6 +310,7 @@ fn apply_snapshot_to_window(window: &MainWindow, snapshot: &UiStateSnapshot) {
     window.set_headline_text(snapshot.headline_text.as_str().into());
     window.set_status_text(snapshot.status_text.as_str().into());
     window.set_network_status(snapshot.network_status.as_str().into());
+    window.set_controller_status(snapshot.controller_status.as_str().into());
     window.set_detail_text(snapshot.detail_text.as_str().into());
     window.set_owner_email(snapshot.owner_email.as_str().into());
     window.set_auth_user_code(snapshot.auth_user_code.as_str().into());
@@ -278,9 +325,40 @@ fn apply_snapshot_to_window(window: &MainWindow, snapshot: &UiStateSnapshot) {
     window.set_pairing_qr_url(pairing_qr_url.as_deref().unwrap_or_default().into());
     window.set_pairing_qr_image(build_pairing_qr_image(pairing_qr_url.as_deref()));
 
-    let photos: Vec<Image> = snapshot.photos.iter().map(|_| Image::default()).collect();
+    let photos = current_photo_images(snapshot);
     let photos_model = Rc::new(VecModel::from(photos));
     window.set_photos(photos_model.into());
+}
+
+fn current_photo_images(snapshot: &UiStateSnapshot) -> Vec<Image> {
+    match rendered_image_snapshot() {
+        Ok(rendered) => rendered
+            .image
+            .as_ref()
+            .map(rendered_image_to_slint_image)
+            .into_iter()
+            .collect(),
+        Err(error) => {
+            log::warn!("failed to read rendered image state: {error:#}");
+            snapshot.photos.iter().map(|_| Image::default()).collect()
+        }
+    }
+}
+
+fn rendered_image_to_slint_image(image: &RenderedImage) -> Image {
+    let mut buffer = SharedPixelBuffer::<Rgba8Pixel>::new(image.width, image.height);
+    let pixels = buffer.make_mut_slice();
+
+    for (index, rgba) in image.rgba8.chunks_exact(4).enumerate() {
+        pixels[index] = Rgba8Pixel {
+            r: rgba[0],
+            g: rgba[1],
+            b: rgba[2],
+            a: rgba[3],
+        };
+    }
+
+    Image::from_rgba8(buffer)
 }
 
 fn browser_pairing_qr_url(snapshot: &UiStateSnapshot) -> Option<String> {
@@ -386,6 +464,8 @@ struct SlintFirmwareUiAdapter {
     software_window: Rc<MinimalSoftwareWindow>,
     display: crate::display::EmbeddedDisplay,
     input: crate::input::EmbeddedInput,
+    controller_generation: Cell<u64>,
+    rendered_generation: Cell<u64>,
 }
 
 #[cfg(target_os = "espidf")]
@@ -427,10 +507,47 @@ impl SlintFirmwareUiAdapter {
             software_window,
             display,
             input,
+            controller_generation: Cell::new(0),
+            rendered_generation: Cell::new(0),
         })
     }
 
+    fn apply_controller_phase_update_if_needed(&self) -> Result<()> {
+        let controller = controller_state_snapshot()?;
+        if controller.generation == self.controller_generation.get() {
+            return Ok(());
+        }
+
+        self.controller_generation.set(controller.generation);
+        self.window
+            .set_controller_status(controller.phase.as_str().into());
+        self.software_window.request_redraw();
+        Ok(())
+    }
+
+    fn apply_rendered_image_update_if_needed(&self) -> Result<()> {
+        let rendered = rendered_image_snapshot()?;
+        if rendered.generation == self.rendered_generation.get() {
+            return Ok(());
+        }
+
+        self.rendered_generation.set(rendered.generation);
+
+        let photos = rendered
+            .image
+            .as_ref()
+            .map(rendered_image_to_slint_image)
+            .into_iter()
+            .collect::<Vec<_>>();
+        let photos_model = Rc::new(VecModel::from(photos));
+        self.window.set_photos(photos_model.into());
+        self.software_window.request_redraw();
+        Ok(())
+    }
+
     fn pump_frame(&self) -> Result<bool> {
+        self.apply_controller_phase_update_if_needed()?;
+        self.apply_rendered_image_update_if_needed()?;
         self.input.pump_window_events(&self.software_window)?;
         slint::platform::update_timers_and_animations();
         embedded_watchdog_tick();

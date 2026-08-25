@@ -32,8 +32,9 @@ export component SetupSidebar inherits VerticalLayout {
 
         StepCard { number: "1"; title: "Power Up"; body: "Device hardware check"; active: root.active-step <= 1; complete: root.active-step > 1; }
         StepCard { number: "2"; title: "Wi-Fi"; body: "Connecting to home internet"; active: root.active-step == 2; complete: root.active-step > 2; }
-        StepCard { number: "3"; title: "Account"; body: "Link your Google Photos"; active: root.active-step == 3; complete: root.active-step > 3; }
-        StepCard { number: "4"; title: "Finish"; body: "Syncing your library"; active: root.active-step == 4; complete: root.active-step == 4; }
+        StepCard { number: "3"; title: "Pair Device"; body: "Confirm ownership from your phone"; active: root.active-step == 3; complete: root.active-step > 3; }
+        StepCard { number: "4"; title: "Home Assistant"; body: "Finding and linking your controller"; active: root.active-step == 4; complete: root.active-step > 4; }
+        StepCard { number: "5"; title: "Display Ready"; body: "Waiting for your first photo"; active: root.active-step == 5; complete: root.active-step == 5; }
     }
 
     Rectangle {

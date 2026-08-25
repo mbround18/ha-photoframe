@@ -16,10 +16,13 @@ export component InfoGrid inherits GridLayout {
         InfoTile {
             label: root.active-screen == "browser-pairing" ? "Pass code" : "Action Required";
             value: (root.active-screen == "wifi-connect" ? "Join Wi-Fi" :
+                    root.active-screen == "ha-syncing" ? "Open Home Assistant" :
                     root.active-screen == "pairing" ? "Enter Code" :
                     root.active-screen == "browser-pairing" ? root.pairing-code : "Standby");
             hint: root.active-screen == "browser-pairing"
                 ? "Scan the QR code to validate instantly, or type this backup pass code into the local setup page if scanning is unavailable."
+                : root.active-screen == "ha-syncing"
+                ? "Finish adding this frame in Home Assistant before photos can be sent here."
                 : "Look at your mobile device or laptop to continue.";
             highlight: true;
         }
@@ -75,9 +78,13 @@ export component InfoGrid inherits GridLayout {
         }
 
         if root.active-screen != "browser-pairing" : InfoTile {
-            label: "Web Dashboard";
-            value: root.local-setup-url != "" ? root.local-setup-url : "Detecting...";
-            hint: "You can manage settings from this URL once connected.";
+            label: root.active-screen == "ha-syncing" ? "Controller" : "Web Dashboard";
+            value: root.active-screen == "ha-syncing"
+                ? "Home Assistant"
+                : (root.local-setup-url != "" ? root.local-setup-url : "Detecting...");
+            hint: root.active-screen == "ha-syncing"
+                ? "Home Assistant will finish claiming this frame and start sending media once setup is complete."
+                : "You can manage settings from this URL once connected.";
         }
     }
 

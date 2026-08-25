@@ -12,7 +12,13 @@ use esp_idf_svc::nvs::EspDefaultNvsPartition;
 mod ownership_store;
 
 #[cfg(target_os = "espidf")]
+mod runtime;
+
+#[cfg(target_os = "espidf")]
 mod setup_state_store;
+
+#[cfg(target_os = "espidf")]
+const DEFAULT_CONTROL_PLANE_URL: &str = "ws://homeassistant.local:8765/ws";
 
 #[cfg(target_os = "espidf")]
 fn rom_print(message: &'static [u8]) {
@@ -222,13 +228,6 @@ fn device_identity() -> anyhow::Result<(String, String)> {
     );
     let device_name = format!("Photo Frame {:02X}{:02X}", mac[4], mac[5]);
     Ok((device_id, device_name))
-}
-
-#[cfg(target_os = "espidf")]
-fn is_google_photos_scope_error(error: &anyhow::Error) -> bool {
-    let message = format!("{error:#}");
-    message.contains("ACCESS_TOKEN_SCOPE_INSUFFICIENT")
-        || message.contains("insufficient authentication scopes")
 }
 
 #[cfg(target_os = "espidf")]
@@ -579,27 +578,13 @@ fn run() -> anyhow::Result<()> {
     );
 
     if app_state.network_phase == frame_core::NetworkPhase::Connected {
-        if let Some(access_token) = app_state.access_token.clone() {
-            let photos_client = frame_api::GooglePhotosClient::new(access_token);
-            match photos_client.list_albums() {
-                Ok(albums) => {
-                    tracing::info!(
-                        target: "frame_firmware",
-                        count = albums.len(),
-                        "photo client returned albums"
-                    );
-                }
-                Err(error) if is_google_photos_scope_error(&error) => {
-                    tracing::warn!(
-                        target: "frame_firmware",
-                        "owner token does not include Google Photos scopes; current setup flow restored identity successfully but browser Photos consent is still missing: {error:#}"
-                    );
-                }
-                Err(error) => return Err(error),
-            }
-        }
-
+        tracing::info!(
+            target: "frame_firmware",
+            owner_email = app_state.google_user_email().unwrap_or_default(),
+            "device setup completed; deferring media source selection and Google-backed content orchestration to the Home Assistant bridge"
+        );
         app_state.mark_ready();
+        app_state.set_controller_phase(frame_core::ControllerPhase::Searching);
         persist_setup_checkpoint(
             &setup_state_store,
             setup_state_store::SetupCheckpoint::Ready,
@@ -607,6 +592,23 @@ fn run() -> anyhow::Result<()> {
             true,
         );
     }
+
+    let thin_client_runtime = runtime::ThinClientRuntime::spawn(
+        runtime::WebSocketControlPlaneTransport::new(DEFAULT_CONTROL_PLANE_URL),
+        runtime::MediaRenderExecutor,
+    );
+    frame_ui::set_controller_phase(app_state.controller_phase.clone())?;
+
+    thin_client_runtime.send_status(frame_core::OutboundStatusMessage::Connected {
+        device_id: app_state.device_id.clone().unwrap_or_default(),
+        device_name: app_state.device_name.clone().unwrap_or_default(),
+    })?;
+    tracing::info!(
+        target: "frame_firmware",
+        device_id = app_state.device_id.as_deref().unwrap_or_default(),
+        controller_url = DEFAULT_CONTROL_PLANE_URL,
+        "thin-client runtime initialized with WebSocket control-plane transport"
+    );
 
     ui.sync_state(&app_state)?;
     local_setup_server.update_state(local_setup_state_from_app(&app_state))?;

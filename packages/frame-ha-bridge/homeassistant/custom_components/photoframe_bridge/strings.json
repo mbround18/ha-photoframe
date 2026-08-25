@@ -1,0 +1,17 @@
+{
+  "title": "PhotoFrame Bridge",
+  "services": {
+    "display_photo": {
+      "name": "Display photo",
+      "description": "Send a render request to a connected frame."
+    },
+    "send_command": {
+      "name": "Send command",
+      "description": "Send a control command to a connected frame."
+    },
+    "claim_device": {
+      "name": "Claim device",
+      "description": "Confirm this connected frame in Home Assistant and notify the device that setup is complete."
+    }
+  }
+}

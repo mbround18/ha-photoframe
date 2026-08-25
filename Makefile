@@ -19,18 +19,33 @@ BASE_PATH := /usr/bin:/bin:$(HOME)/.cargo/bin
 SYSTEM_ENV := /usr/bin/env
 FIRMWARE_BUILD_ENV := $(SYSTEM_ENV) -u VIRTUAL_ENV -u CONDA_PREFIX -u CONDA_DEFAULT_ENV -u PYTHONHOME -u PYTHONPATH -u UV_PROJECT_ENVIRONMENT PATH="$(BASE_PATH)" PYTHON=/usr/bin/python3 MCU=esp32p4 ESP_IDF_VERSION=$(ESP_IDF_VERSION) ESP_IDF_TOOLS_INSTALL_DIR=global ESP_IDF_SYS_ROOT_CRATE=frame-firmware ESP_IDF_SDKCONFIG_DEFAULTS="$(CURDIR)/sdkconfig.defaults" IDF_PYTHON_ENV_PATH="$(ESP_IDF_PYTHON_ENV)"
 FIRMWARE_TOOL_ENV := $(SYSTEM_ENV) -u VIRTUAL_ENV -u CONDA_PREFIX -u CONDA_DEFAULT_ENV -u PYTHONHOME -u PYTHONPATH -u UV_PROJECT_ENVIRONMENT PATH="$(BASE_PATH):$(ESP_IDF_PYTHON_ENV)/bin" IDF_PYTHON_ENV_PATH="$(ESP_IDF_PYTHON_ENV)"
+DIST_DIR := dist
+PACKAGE_STAGING_DIR := $(DIST_DIR)/package-staging
+HA_COMPONENT_SOURCE := packages/frame-ha-bridge/homeassistant/custom_components/photoframe_bridge
+HA_COMPONENT_DOMAIN := photoframe_bridge
+ROOT_VERSION := $(shell sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml | head -n1)
+HA_PACKAGE_NAME := $(HA_COMPONENT_DOMAIN)-$(ROOT_VERSION)
+HA_PACKAGE_TGZ := $(DIST_DIR)/$(HA_PACKAGE_NAME).tgz
 
-.PHONY: bootstrap-python-env clean-firmware-ui-cache build format lint flash monitor dev
+.PHONY: bootstrap-python-env bootstrap-rust-tools ensure-common-components-dir clean-firmware-ui-cache build format lint flash monitor dev package clean-package
 
 bootstrap-python-env:
 	@if [ ! -x "$(ESP_IDF_PYTHON_BIN)" ]; then \
-		./scripts/bootstrap-env.sh; \
+		bash ./scripts/bootstrap-env.sh; \
 	fi
+
+bootstrap-rust-tools:
+	@if [ ! -x "$(HOME)/.cargo/bin/ldproxy" ]; then \
+		bash ./scripts/bootstrap-env.sh; \
+	fi
+
+ensure-common-components-dir:
+	@mkdir -p tmp/common_components
 
 clean-firmware-ui-cache:
 	@find target/$(FIRMWARE_TARGET) -maxdepth 3 -type d -name 'esp-idf-sys-*' -exec rm -rf {} + 2>/dev/null || true
 
-build: bootstrap-python-env clean-firmware-ui-cache
+build: bootstrap-python-env bootstrap-rust-tools ensure-common-components-dir clean-firmware-ui-cache
 	$(FIRMWARE_BUILD_ENV) $(FIRMWARE_BUILD_CMD)
 
 format:
@@ -65,3 +80,13 @@ monitor:
 dev:
 	@$(MAKE) flash
 	@$(MAKE) monitor
+
+clean-package:
+	rm -rf $(PACKAGE_STAGING_DIR)
+
+package: clean-package
+	@set -e; \
+	mkdir -p "$(PACKAGE_STAGING_DIR)/custom_components" "$(DIST_DIR)"; \
+	cp -R "$(HA_COMPONENT_SOURCE)" "$(PACKAGE_STAGING_DIR)/custom_components/$(HA_COMPONENT_DOMAIN)"; \
+	tar -C "$(PACKAGE_STAGING_DIR)" -czf "$(HA_PACKAGE_TGZ)" custom_components; \
+	echo "Created $(HA_PACKAGE_TGZ)"

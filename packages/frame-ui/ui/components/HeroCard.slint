@@ -61,7 +61,8 @@ export component HeroCard inherits Rectangle {
             Text {
                 text: (root.active-screen == "pairing" ? root.auth-user-code :
                        root.active-screen == "wifi-connect" ? root.provisioning-ssid :
-                       root.active-screen == "browser-pairing" ? "Pass Code: " + root.pairing-code : "System Active");
+                      root.active-screen == "browser-pairing" ? "Pass Code: " + root.pairing-code :
+                      root.active-screen == "ha-syncing" ? "Home Assistant" : "System Active");
                 font-size: 42px;
                 font-weight: 900;
                 color: #38bdf8;

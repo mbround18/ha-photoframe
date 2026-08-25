@@ -1,3 +1,4 @@
+use crate::control::ScreenStatus;
 use crate::models::{AlbumMetadata, GoogleUser, PhotoMetadata};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -37,12 +38,37 @@ impl NetworkPhase {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ControllerPhase {
+    NotStarted,
+    Searching,
+    AwaitingConfiguration,
+    Connected,
+    Error(String),
+}
+
+impl ControllerPhase {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::NotStarted => "NotStarted",
+            Self::Searching => "Searching",
+            Self::AwaitingConfiguration => "AwaitingConfiguration",
+            Self::Connected => "Connected",
+            Self::Error(_) => "Error",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AppState {
     pub phase: AppPhase,
     pub network_phase: NetworkPhase,
+    pub controller_phase: ControllerPhase,
     pub photos: Vec<PhotoMetadata>,
     pub albums: Vec<AlbumMetadata>,
     pub current_album: Option<AlbumMetadata>,
+    pub active_media_url: Option<String>,
+    pub screen_status: ScreenStatus,
+    pub display_brightness: Option<u8>,
     pub google_user: Option<GoogleUser>,
     pub access_token: Option<String>,
     pub auth_user_code: Option<String>,
@@ -62,9 +88,13 @@ impl AppState {
         Self {
             phase: AppPhase::Splash,
             network_phase: NetworkPhase::Unprovisioned,
+            controller_phase: ControllerPhase::NotStarted,
             photos: Vec::new(),
             albums: Vec::new(),
             current_album: None,
+            active_media_url: None,
+            screen_status: ScreenStatus::Idle,
+            display_brightness: None,
             google_user: None,
             access_token: None,
             auth_user_code: None,
@@ -98,10 +128,38 @@ impl AppState {
         }
 
         self.network_phase = phase;
+
+        if self.network_phase != NetworkPhase::Connected {
+            self.controller_phase = ControllerPhase::NotStarted;
+        }
+    }
+
+    pub fn set_controller_phase(&mut self, phase: ControllerPhase) {
+        self.controller_phase = phase;
+    }
+
+    pub fn set_controller_error(&mut self, error: impl Into<String>) {
+        self.controller_phase = ControllerPhase::Error(error.into());
     }
 
     pub fn set_google_user(&mut self, google_user: GoogleUser) {
         self.google_user = Some(google_user);
+    }
+
+    pub fn set_active_media_url(&mut self, media_url: impl Into<String>) {
+        self.active_media_url = Some(media_url.into());
+    }
+
+    pub fn clear_active_media_url(&mut self) {
+        self.active_media_url = None;
+    }
+
+    pub fn set_screen_status(&mut self, screen_status: ScreenStatus) {
+        self.screen_status = screen_status;
+    }
+
+    pub fn set_display_brightness(&mut self, brightness: Option<u8>) {
+        self.display_brightness = brightness;
     }
 
     pub fn set_access_token(&mut self, access_token: impl Into<String>) {

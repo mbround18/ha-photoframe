@@ -23,12 +23,20 @@ tracing-subscriber = { version = "0.3.20", default-features = false, features = 
   "ansi",
 ] }
 rand = "0.8.5"
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png"] }
+serde_json = "1.0.145"
+tungstenite = { version = "0.24.0", default-features = false, features = ["handshake"] }
+url = "2.5.7"
+
+[target.'cfg(not(target_os = "espidf"))'.dependencies]
+reqwest = { version = "0.12.23", default-features = false, features = ["blocking", "rustls-tls"] }
 
 [target.'cfg(target_os = "espidf")'.dependencies]
 # `esp-idf-sys` provides the low-level FFI (Foreign Function Interface)
 # bindings to the underlying ESP-IDF C libraries. The "binstart" feature
 # is critical as it includes the necessary boilerplate to properly initialize
 # the Rust runtime environment on the ESP32.
+embedded-svc = "0.29.0"
 esp-idf-sys = { version = "0.37.2", features = ["binstart"] }
 esp-idf-hal = "0.46.2"
 esp-idf-svc = { version = "0.52.1", default-features = false }
@@ -41,3 +49,6 @@ component_dirs = ["components", "../../tmp/common_components"]
 
 [[package.metadata.esp-idf-sys.extra_components]]
 remote_component = { name = "espressif/esp_wifi_remote", version = "*" }
+
+[[package.metadata.esp-idf-sys.extra_components]]
+remote_component = { name = "espressif/esp32_p4_function_ev_board", version = "*" }

@@ -232,7 +232,15 @@ esp_err_t frame_embedded_panel_init(uint16_t width,
 
   memset(&s_panel_handles, 0, sizeof(s_panel_handles));
 
-  ESP_RETURN_ON_ERROR(bsp_display_new_with_handles(NULL, &s_panel_handles), TAG, "raw display init failed");
+  const bsp_display_config_t display_config = {
+      .hdmi_resolution = BSP_HDMI_RES_NONE,
+      .dsi_bus = {
+          .phy_clk_src = 0,
+          .lane_bit_rate_mbps = BSP_LCD_MIPI_DSI_LANE_BITRATE_MBPS,
+      },
+  };
+
+  ESP_RETURN_ON_ERROR(bsp_display_new_with_handles(&display_config, &s_panel_handles), TAG, "raw display init failed");
   ESP_RETURN_ON_ERROR(enable_vendor_backlight(), TAG, "vendor backlight enable failed");
   ESP_RETURN_ON_ERROR(apply_panel_rotation(rotation_degrees), TAG, "panel rotation setup failed");
 

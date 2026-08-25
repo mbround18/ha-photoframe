@@ -14,15 +14,16 @@ platform-neutral core state, and explicit host and firmware validation paths.
 ### Bootstrap The ESP-IDF Python Environment
 
 The firmware build expects a Python environment at
-`~/.espressif/python_env/idf5.2_py3.12_env`. Create it with:
+`~/.espressif/python_env/idf5.5_py3.12_env`. Create it with:
 
 ```bash
-./scripts/bootstrap-env.sh
+bash ./scripts/bootstrap-env.sh
 ```
 
 That script uses `uv` to create the environment with `pip`, which avoids the
 system `python3.12-venv` dependency that `esp-idf-sys` would otherwise try to
-use.
+use. It also installs the `ldproxy` linker wrapper into `~/.cargo/bin`, which
+the ESP-IDF Rust target uses during final linking.
 
 ### Validate The Host Workflow
 
