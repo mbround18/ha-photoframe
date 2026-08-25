@@ -13,7 +13,7 @@ export component InfoGrid inherits GridLayout {
             value: (root.active-screen == "wifi-connect" ? "Join Wi-Fi" :
                     root.active-screen == "ha-syncing" ? "Open Home Assistant" : "Standby");
             hint: root.active-screen == "ha-syncing"
-                ? "Finish adding this frame in Home Assistant before photos can be sent here."
+                ? "Settings > Devices & Services > Add Integration > PhotoFrame Bridge, then enter the ID shown above."
                 : "Look at your mobile device or laptop to continue.";
             highlight: true;
         }

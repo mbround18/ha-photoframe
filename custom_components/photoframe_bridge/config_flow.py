@@ -34,6 +34,28 @@ from .const import (
     DOMAIN,
 )
 
+#: The frame derives its id from the P4's eFuse MAC and prints it on its setup
+#: screen. People will retype it from that screen, possibly from across a room,
+#: so accept the reasonable variations rather than rejecting a near miss:
+#: "esp32p4-80f1b2d0b566", "80f1b2d0b566", "80:F1:B2:D0:B5:66", "80-f1-...".
+FRAME_ID_PREFIX = "esp32p4-"
+
+
+def normalise_frame_id(raw: str) -> str | None:
+    """Return the canonical frame id, or None if it cannot be one."""
+    candidate = raw.strip().lower().replace(" ", "")
+    if candidate.startswith(FRAME_ID_PREFIX):
+        candidate = candidate[len(FRAME_ID_PREFIX) :]
+
+    # MAC separators are noise; the id itself is bare hex.
+    for separator in (":", "-", "."):
+        candidate = candidate.replace(separator, "")
+
+    if len(candidate) != 12 or any(c not in "0123456789abcdef" for c in candidate):
+        return None
+    return f"{FRAME_ID_PREFIX}{candidate}"
+
+
 STEP_USER_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_FRAME_ID): cv.string,
@@ -50,10 +72,22 @@ class PhotoFrameConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        if user_input is None:
-            return self.async_show_form(step_id="user", data_schema=STEP_USER_SCHEMA)
+        errors: dict[str, str] = {}
 
-        frame_id = user_input[CONF_FRAME_ID].strip()
+        if user_input is not None:
+            frame_id = normalise_frame_id(user_input[CONF_FRAME_ID])
+            if frame_id is None:
+                errors[CONF_FRAME_ID] = "invalid_frame_id"
+            else:
+                return await self._create(frame_id, user_input)
+
+        return self.async_show_form(
+            step_id="user", data_schema=STEP_USER_SCHEMA, errors=errors
+        )
+
+    async def _create(
+        self, frame_id: str, user_input: dict[str, Any]
+    ) -> ConfigFlowResult:
 
         # One entry per frame. Re-adding an existing frame updates it rather
         # than creating a duplicate device (FR-005).

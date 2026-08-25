@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Add a photo frame",
-        "description": "Enter the frame's ID, shown on its screen during setup and in its serial log. The frame will connect to Home Assistant on its own once it is on the same network.",
+        "description": "Enter the ID shown on the frame's screen. You can type it with or without the esp32p4- prefix, and with or without colons.",
         "data": {
           "frame_id": "Frame ID",
           "name": "Name"
@@ -12,6 +12,9 @@
     },
     "abort": {
       "already_configured": "This frame has already been added."
+    },
+    "error": {
+      "invalid_frame_id": "That does not look like a frame ID. It is shown on the frame's screen and looks like esp32p4-80f1b2d0b566."
     }
   },
   "options": {

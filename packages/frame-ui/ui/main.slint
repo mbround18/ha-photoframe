@@ -19,6 +19,10 @@ export component MainWindow inherits Window {
     in property <string> network-status: "Unprovisioned";
     in property <string> controller-status: "NotStarted";
     in property <string> detail-text: "Preparing setup environment...";
+    // Shown on the setup screen so the owner can add this frame in Home
+    // Assistant without reading a serial log. It disappears the moment the
+    // frame is adopted (Principle VIII).
+    in property <string> frame_id: "";
     in property <string> provisioning_ssid: "";
     in property <string> provisioning_password: "";
     in property <string> screen_override: "";
@@ -27,9 +31,13 @@ export component MainWindow inherits Window {
     property <int> current_photo_index: 0;
 
     // Logic remains identical to your original to ensure backend compatibility
+    // `controller-status` is the only field that updates live once the UI loop
+    // is running (the firmware pushes it from the control-plane thread), so the
+    // screen has to be driven by it rather than by app-phase, which is only set
+    // during boot.
     private property <string> active_screen: screen_override != "" ? screen_override :
-        app-phase == "Ready" && controller-status != "Connected" ? "ha-syncing" :
-        app-phase == "Ready" ? "ready" :
+        controller-status == "Connected" ? "ready" :
+        network-status == "Connected" ? "ha-syncing" :
         network-status == "Provisioning" ? "wifi-connect" :
         app-phase == "Splash" ? "welcome" : "status";
 
@@ -37,6 +45,9 @@ export component MainWindow inherits Window {
         active_screen == "ha-syncing" ? 3 :
         active_screen == "wifi-connect" ? 2 :
         app-phase == "Setup" ? 1 : 0;
+
+    // Once photos are arriving the panel shows photos and nothing else
+    // (Principle VIII). The frame ID is setup guidance, not decoration.
 
     private property <string> display_status: app-phase == "Ready" && controller-status != "NotStarted"
         ? controller-status
@@ -64,13 +75,11 @@ export component MainWindow inherits Window {
 
     // Hero Text Mappings
     private property <string> hero_title: active_screen == "ready" ? "Frame Ready!" :
-        active_screen == "ha-syncing" && controller-status == "Searching" ? "Finding Home Assistant" :
-        active_screen == "ha-syncing" ? "Awaiting Home Assistant" :
+        active_screen == "ha-syncing" ? "Add this frame" :
         active_screen == "wifi-connect" ? "Join Setup Wi-Fi" : "Initializing";
 
     private property <string> hero_body: active_screen == "ready" ? "Your frame is ready to display your life's best moments." :
-        active_screen == "ha-syncing" && controller-status == "Searching" ? "Your frame is online. It is now looking for Home Assistant on the same network." :
-        active_screen == "ha-syncing" ? "Home Assistant can see this frame. Open Home Assistant to finish adding it before photos start appearing here." :
+        active_screen == "ha-syncing" ? "In Home Assistant, add the PhotoFrame Bridge integration and enter the ID below. Photos will start appearing here on their own." :
         active_screen == "wifi-connect" ? "Connect to the network below to provide your home Wi-Fi credentials." : "Checking hardware and preparing the setup flow...";
 
     callback connect-to-wifi();
@@ -114,6 +123,7 @@ export component MainWindow inherits Window {
                     hero-title: root.hero_title;
                     hero-body: root.hero_body;
                     provisioning-ssid: root.provisioning_ssid;
+                    frame-id: root.frame_id;
                 }
 
                 InfoGrid {

@@ -93,6 +93,7 @@ pub struct UiStateSnapshot {
     pub network_status: String,
     pub controller_status: String,
     pub detail_text: String,
+    pub frame_id: String,
     pub provisioning_ssid: String,
     pub provisioning_password: String,
 }
@@ -106,6 +107,7 @@ impl UiStateSnapshot {
             network_status: state.network_phase.as_str().to_string(),
             controller_status: state.controller_phase.as_str().to_string(),
             detail_text: detail_text(state),
+            frame_id: state.device_id.as_deref().unwrap_or_default().to_string(),
             provisioning_ssid: state
                 .provisioning_ssid
                 .as_deref()
@@ -216,7 +218,7 @@ fn detail_text(state: &AppState) -> String {
                 .to_string()
         }
         (frame_core::AppPhase::Setup, frame_core::NetworkPhase::Connected) => {
-            "Wi-Fi is connected. Finishing setup so Home Assistant can find this frame."
+            "Wi-Fi is connected. Add this frame in Home Assistant using the ID on screen."
                 .to_string()
         }
         (frame_core::AppPhase::Ready, _) => {
@@ -254,6 +256,7 @@ fn apply_snapshot_to_window(window: &MainWindow, snapshot: &UiStateSnapshot) {
     window.set_network_status(snapshot.network_status.as_str().into());
     window.set_controller_status(snapshot.controller_status.as_str().into());
     window.set_detail_text(snapshot.detail_text.as_str().into());
+    window.set_frame_id(snapshot.frame_id.as_str().into());
     window.set_provisioning_ssid(snapshot.provisioning_ssid.as_str().into());
     window.set_provisioning_password(snapshot.provisioning_password.as_str().into());
 

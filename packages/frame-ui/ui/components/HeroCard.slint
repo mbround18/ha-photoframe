@@ -3,6 +3,7 @@ export component HeroCard inherits Rectangle {
     in property <string> hero-title;
     in property <string> hero-body;
     in property <string> provisioning-ssid;
+    in property <string> frame-id;
 
     height: 320px;
     border-radius: 32px;
@@ -58,11 +59,15 @@ export component HeroCard inherits Rectangle {
 
             Text {
                 text: (root.active-screen == "wifi-connect" ? root.provisioning-ssid :
-                       root.active-screen == "ha-syncing" ? "Home Assistant" : "System Active");
-                font-size: 42px;
+                       root.active-screen == "ha-syncing"
+                           ? (root.frame-id != "" ? root.frame-id : "Starting up...")
+                           : "System Active");
+                // The frame ID is long and gets typed by hand, so it needs to
+                // be legible rather than dramatic; the Wi-Fi SSID can be big.
+                font-size: root.active-screen == "ha-syncing" ? 34px : 42px;
                 font-weight: 900;
                 color: #38bdf8;
-                letter-spacing: 4px;
+                letter-spacing: root.active-screen == "ha-syncing" ? 2px : 4px;
             }
         }
     }
