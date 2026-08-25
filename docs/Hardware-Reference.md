@@ -296,6 +296,34 @@ so the path must be absolute — and therefore cannot be committed. The Makefile
 **The panel driver is wrong in the upstream BSP** — see the next section. The frame boots and runs,
 but the display does not receive a correct init sequence.
 
+## 4b. The panel revision matters, and it is not detectable in software
+
+**This board needs the Old_Panel JD9365 init sequence.**
+
+The manufacturer ships two shell revisions with different JD9365 initialisation
+command sequences -- 197 entries for Old_Panel, 204 for New_Panel -- under
+`/source/.../JC8012P4A1C_I_W_Y_{Old,New}_Panel/common_components/esp_lcd_jd9365/`.
+Their burning instructions say only: *"For those with 'V2' after the material
+number on the label on the back of the shell, please program a new panel."*
+
+The failure mode when you pick wrong is vicious, because everything that reports
+status reports success:
+
+- `esp_lcd_new_panel_jd9365`, `esp_lcd_panel_reset`, `esp_lcd_panel_init`,
+  `esp_lcd_panel_disp_on_off` and `esp_lcd_panel_draw_bitmap` all return `ESP_OK`
+- the panel answers over the command channel: `jd9365: LCD ID: 93 65 04`
+- the backlight lights
+- and the glass shows a uniform bright field with fine vertical banding,
+  regardless of what you draw
+
+**The manufacturer's own factory image reproduces it.** Flashing
+`JC8012P4A1C_I_W_Y-V4_3_New_Panel.bin` to this board gives the same blank
+result, which is the cheapest possible way to tell "our bug" from "wrong
+variant" -- and is worth reaching for early rather than late.
+
+Switching the vendored `esp_lcd_jd9365` to the Old_Panel copy makes the display
+work immediately, with no other change.
+
 ## 5. Power
 
 ```

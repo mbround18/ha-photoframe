@@ -21,14 +21,6 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-
-      # frame-ha-bridge links libpython through pyo3. A uv-managed CPython
-      # ships libpython, which avoids a system libpython3-dev dependency.
-      - name: Provide a CPython with libpython
-        run: uv python install 3.13
-
       - name: Format
         run: cargo fmt --all -- --check
 

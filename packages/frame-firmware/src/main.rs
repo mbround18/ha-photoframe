@@ -220,7 +220,7 @@ fn run() -> anyhow::Result<()> {
             network = app_state.network_phase.as_str()
         )
         .entered();
-        ui.sync_state(&app_state)?;
+        ui.sync(&app_state)?;
         tracing::info!(
             target: "frame_firmware",
             phase = app_state.phase.as_str(),
@@ -237,7 +237,7 @@ fn run() -> anyhow::Result<()> {
     std::thread::sleep(std::time::Duration::from_millis(1500));
 
     app_state.begin_setup();
-    ui.sync_state(&app_state)?;
+    ui.sync(&app_state)?;
     tracing::info!(
         target: "frame_firmware",
         phase = app_state.phase.as_str(),
@@ -256,7 +256,7 @@ fn run() -> anyhow::Result<()> {
             provisioning_manager.ensure_network()?
         };
         app_state.set_network_phase(network_phase.clone());
-        ui.sync_state(&app_state)?;
+        ui.sync(&app_state)?;
         tracing::info!(
             target: "frame_firmware",
             network = app_state.network_phase.as_str(),
@@ -282,7 +282,7 @@ fn run() -> anyhow::Result<()> {
             if let Some((ssid, password)) = provisioning_manager.get_provisioning_ap_details() {
                 app_state.set_provisioning_details(ssid, password);
             }
-            ui.sync_state(&app_state)?;
+            ui.sync(&app_state)?;
         }
 
         if app_state.network_phase == frame_core::NetworkPhase::Connected {
@@ -326,7 +326,7 @@ fn run() -> anyhow::Result<()> {
 
     app_state.set_controller_phase(frame_core::ControllerPhase::Searching);
     frame_ui::set_controller_phase(app_state.controller_phase.clone())?;
-    ui.sync_state(&app_state)?;
+    ui.sync(&app_state)?;
 
     if let (Some(device_id), Some(device_name)) =
         (app_state.device_id.clone(), app_state.device_name.clone())
@@ -394,9 +394,13 @@ fn run() -> anyhow::Result<()> {
 
     rom_print(b"frame-firmware: entering UI run loop\r\n\0");
 
-    ui.run()?;
-    rom_print(b"frame-firmware: ui.run() returned unexpectedly\r\n\0");
-    anyhow::bail!("ui.run() returned unexpectedly")
+    // The panel only changes when the state behind it changes, so this loop is
+    // a cheap reconcile rather than a render loop. Photos arrive on the
+    // control-plane thread and land here through the rendered-image store.
+    loop {
+        ui.sync(&app_state)?;
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
 }
 
 #[cfg(not(target_os = "espidf"))]

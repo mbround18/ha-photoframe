@@ -430,6 +430,61 @@ unplugged frame could report "running on battery" rather than silently dying —
 
 ---
 
+## R11. Display bring-up: the panel revision, and dropping Slint
+
+**Resolved on hardware 2026-08-25.**
+
+### The display fault was a panel-revision mismatch, not software
+
+This board needs the **Old_Panel** JD9365 init sequence (197 command entries);
+we were sending New_Panel's (204). Every API call returned `ESP_OK`, the panel
+answered ID queries, and the backlight lit -- but nothing rendered. The
+manufacturer's own factory image reproduces the fault, which is what finally
+separated "our bug" from "wrong variant". See
+[Hardware-Reference.md](../../docs/Hardware-Reference.md) section 4b.
+
+**Method note worth keeping**: flashing the vendor image is a two-minute test
+that would have short-circuited a long software hunt. When a device-level
+symptom could be either our code or the hardware, reach for the vendor's
+known-good binary early.
+
+### The device is now Rust-only, and Slint is gone
+
+Slint cost **2.15 MB** of flash -- the binary was 7,456,076 bytes against a
+7,340,032-byte app partition, i.e. already too big to flash. Replacing it with
+embedded-graphics, following ha-kiosk's model, brings it to 5,302,704 bytes with
+2 MB spare.
+
+Removed with it: the ~500-line `frame_embedded_ui.c` shim, `adapter.rs`,
+`display.rs`, four `.slint` files, `slint-build`, `mipidsi`, `ft6x06`,
+`qrcodegen`, and the Slint touch module.
+
+**Decision**: the board BSP is vendored from the manufacturer's demo bundle and
+bound into Rust with esp-idf-sys' `bindings_header`, exactly as ha-kiosk does.
+The registry BSP targets Espressif's reference board -- it installs an ILI9881C
+here and configures the DSI link differently, reporting success and lighting
+nothing. Hand-rolling the DSI setup from the schematic was worse still: it meant
+re-deriving the lane count, lane bit rate and colour order, and a wrong one is
+invisible.
+
+`esp_lcd_touch_gsl3680` is deliberately **not** vendored: it ships with no
+licence or SPDX header. Touch is unused, and the factory-reset gesture uses the
+BOOT button on GPIO35 (R9).
+
+### Python now exists only where the platform requires it
+
+`frame-ha-bridge` (PyO3) is deleted. It exposed protocol types to Python, but
+`protocol.py` already mirrors them dependency-free, and it was the sole reason
+for the libpython linking workarounds in the Makefile and CI.
+
+The remaining Python is `esptool`, the pytest suite, and the HACS integration --
+which is Python because Home Assistant loads Python modules. A fully Rust
+alternative exists (ha-kiosk talks to HA's API directly with no custom
+component) but it cannot hold Google Photos credentials server-side or prepare
+photos off-device, so it breaks Principles II and VI.
+
+---
+
 ## Resolved unknowns summary
 
 | # | Unknown | Resolution |
@@ -442,6 +497,7 @@ unplugged frame could report "running on battery" rather than silently dying —
 | R6 | What already exists? | Control protocol and HA component skeleton exist — extend them. On-device OAuth gets deleted. |
 | R7 | HACS layout | Move component to root `custom_components/`. hassfest + HACS action in CI. |
 | R8 | Image preparation | Pillow in an executor; blurred-backdrop letterbox for portraits; authenticated HTTP view. |
+| R11 | Why did the display never render? | **Wrong panel revision.** This board needs the Old_Panel JD9365 init sequence. Also: Slint dropped (2.15 MB, was over the partition), BSP vendored and bound into Rust, PyO3 deleted. |
 | R10 | Does BLE work on this board? | **Yes, verified on hardware.** Advertises, is discoverable from an independent radio, and accepts connections. Branch A confirmed; SoftAP fallback dropped. |
 | R9 | Board pinout and bring-up | Touch is GSL3680 (stock BSP is wrong) → use the **GPIO35 BOOT button** for reset. Backlight is **GPIO23**, touch reset **GPIO22** (spec doc corrected). WS2812 status LED on GPIO26. SD rail needs `ESP_LDO_VO4`. |
 

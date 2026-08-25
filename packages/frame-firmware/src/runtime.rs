@@ -227,12 +227,15 @@ impl RenderExecutor for MediaRenderExecutor {
 
         let bytes = download_media(&request.media_url)
             .with_context(|| format!("failed to download media from {}", request.media_url))?;
+        // Home Assistant already sized and encoded this for our exact panel, so
+        // decoding is the only work left here (T033 moves it onto the P4's
+        // hardware JPEG decoder).
         let decoded = image::load_from_memory(&bytes)
             .with_context(|| format!("failed to decode media from {}", request.media_url))?
-            .into_rgba8();
+            .into_rgb8();
         let (width, height) = decoded.dimensions();
 
-        set_rendered_image(RenderedImage::new(width, height, decoded.into_raw())?)
+        set_rendered_image(RenderedImage::from_rgb8(width, height, decoded.as_raw())?)
             .context("failed to publish rendered image to the UI")?;
 
         tracing::info!(

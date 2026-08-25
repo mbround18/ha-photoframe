@@ -4,18 +4,11 @@ version = "0.1.0"
 description = "Home Assistant-managed digital photo frame: ESP32-P4 firmware and the photoframe_bridge integration"
 readme = "README.md"
 requires-python = ">=3.13"
+# esptool is the only runtime Python this project needs outside Home Assistant
+# itself: the firmware is Rust and the integration runs inside Home Assistant,
+# which brings its own dependencies.
 dependencies = [
     "esptool>=5.1.0",
-    "frame-ha-bridge",
-    "websockets>=13,<14"
-]
-
-[tool.uv.sources]
-frame-ha-bridge = { workspace = true }
-
-[tool.uv.workspace]
-members = [
-    "packages/frame-ha-bridge",
 ]
 
 [dependency-groups]

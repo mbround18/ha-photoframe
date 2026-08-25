@@ -56,7 +56,7 @@ format:
 # frame-ui pulls a system fontconfig on the host. Firmware-target lint runs
 # through `cargo firmware-check`.
 lint:
-	$(HOST_ENV) cargo clippy $(HOST_CRATES) --all-targets --target $(HOST_TARGET) -- -D warnings
+	cargo clippy $(HOST_CRATES) --all-targets --target $(HOST_TARGET) -- -D warnings
 
 flash: build
 	@set -e; \
@@ -89,20 +89,10 @@ dev:
 # target: on the host, slint 1.15 pulls fontique -> system fontconfig, which we
 # deliberately do not depend on (see docs/Hardware-Reference.md and the
 # constitution's Hardware & Toolchain Constraints).
-HOST_CRATES := -p frame-core -p frame-api -p frame-net -p frame-ha-bridge -p frame-captive-portal
-
-# frame-ha-bridge links libpython through pyo3. Rather than depend on a system
-# `libpython3-dev` (apt), resolve a uv-managed CPython that ships libpython --
-# see the constitution's Hardware & Toolchain Constraints.
-PYO3_PY := $(shell uv python find 3.13 2>/dev/null)
-PYO3_LIBDIR := $(if $(PYO3_PY),$(abspath $(dir $(PYO3_PY))/../lib))
-HOST_ENV := PYO3_PYTHON="$(PYO3_PY)" LD_LIBRARY_PATH="$(PYO3_LIBDIR):$$LD_LIBRARY_PATH"
+HOST_CRATES := -p frame-core -p frame-api -p frame-net -p frame-captive-portal
 
 check-host:
-	$(HOST_ENV) cargo check $(HOST_CRATES) --target $(HOST_TARGET)
+	cargo check $(HOST_CRATES) --target $(HOST_TARGET)
 
 test-host:
-	@if [ -z "$(PYO3_PY)" ]; then \
-		echo "No uv-managed CPython 3.13 found. Run: uv python install 3.13" >&2; exit 1; \
-	fi
-	$(HOST_ENV) cargo test $(HOST_CRATES) --target $(HOST_TARGET)
+	cargo test $(HOST_CRATES) --target $(HOST_TARGET)

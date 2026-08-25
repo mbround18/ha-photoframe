@@ -5,8 +5,11 @@ CONFIG_CODEC_I2C_BACKWARD_COMPATIBLE=n
 CONFIG_SPIRAM=y
 CONFIG_SPIRAM_MODE_HEX=y
 CONFIG_SPIRAM_SPEED_200M=y
-CONFIG_CACHE_L2_CACHE_256KB=y
-CONFIG_CACHE_L2_CACHE_LINE_128B=y
+# Match the vendor's working video_lcd_display demo. The MIPI-DSI DPI frame
+# buffer sits in PSRAM and is read by DMA; the vendor ships a 64-byte L2 line
+# and we were running 128.
+CONFIG_CACHE_L2_CACHE_128KB=y
+CONFIG_CACHE_L2_CACHE_LINE_64B=y
 CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
 CONFIG_ESP_WIFI_REMOTE_ENABLED=y
 CONFIG_PARTITION_TABLE_CUSTOM=y
@@ -59,3 +62,9 @@ CONFIG_BT_NIMBLE_TRANSPORT_UART=n
 CONFIG_ESP_HOSTED_ENABLE_BT_NIMBLE=y
 CONFIG_ESP_HOSTED_NIMBLE_HCI_VHCI=y
 CONFIG_FREERTOS_HZ=1000
+
+# Two DPI frame buffers, matching the vendor's own working demo
+# (CONFIG_EXAMPLE_CAM_BUF_COUNT=2). With a single buffer, esp_lcd_panel_draw_bitmap
+# writes into the buffer currently being scanned out; with two it swaps, which is
+# the path the vendor exercises and the one their demo is known to display with.
+CONFIG_BSP_LCD_DPI_BUFFER_NUMS=2
