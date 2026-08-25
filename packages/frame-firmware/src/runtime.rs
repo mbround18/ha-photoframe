@@ -94,6 +94,40 @@ const CONTROL_PLANE_STACK_BYTES: usize = 16 * 1024;
 /// Stack for the render thread, which additionally decodes a JPEG.
 const RENDER_CONTROLLER_STACK_BYTES: usize = 32 * 1024;
 
+/// Put these stacks in PSRAM.
+///
+/// Internal RAM is roughly 400 KB and is largely spoken for by Wi-Fi and the
+/// display by the time these threads start, so allocating tens of KB there
+/// fails with ENOMEM. The board has 32 MB of PSRAM and both
+/// `CONFIG_SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY` and
+/// `CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM` are enabled, so external stacks
+/// are supported; neither thread takes an interrupt, which is the case that
+/// would rule PSRAM out.
+#[cfg(target_os = "espidf")]
+fn configure_thread_stacks_in_psram(stack_size: usize, name: &'static core::ffi::CStr) {
+    use enumset::enum_set;
+    use esp_idf_hal::task::thread::{MallocCap, ThreadSpawnConfiguration};
+
+    let config = ThreadSpawnConfiguration {
+        name: Some(name),
+        stack_size,
+        priority: 5,
+        inherit: false,
+        pin_to_core: None,
+        stack_alloc_caps: enum_set!(MallocCap::Spiram | MallocCap::Cap8bit),
+    };
+
+    if let Err(error) = config.set() {
+        tracing::warn!(
+            target: "frame_firmware",
+            "could not place thread stack in PSRAM ({error}); falling back to internal RAM"
+        );
+    }
+}
+
+#[cfg(not(target_os = "espidf"))]
+fn configure_thread_stacks_in_psram(_stack_size: usize, _name: &'static core::ffi::CStr) {}
+
 impl ThinClientRuntime {
     pub fn spawn<T, E>(transport: T, render_executor: E) -> Self
     where
@@ -104,12 +138,14 @@ impl ThinClientRuntime {
         let (transport_tx, transport_rx) = mpsc::channel();
         let render_status_tx = transport_tx.clone();
 
+        configure_thread_stacks_in_psram(CONTROL_PLANE_STACK_BYTES, c"frame-control-plane");
         let control_join = thread::Builder::new()
             .name("frame-control-plane".to_string())
             .stack_size(CONTROL_PLANE_STACK_BYTES)
             .spawn(move || run_control_plane_loop(transport, control_tx, transport_rx))
             .expect("failed to spawn control plane thread");
 
+        configure_thread_stacks_in_psram(RENDER_CONTROLLER_STACK_BYTES, c"frame-render");
         let render_join = thread::Builder::new()
             .name("frame-render-controller".to_string())
             .stack_size(RENDER_CONTROLLER_STACK_BYTES)

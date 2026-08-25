@@ -80,13 +80,13 @@ all sit on. **Blocking** — no user story phase can complete without this.
 - [ ] T021 Mirror the new message types in `custom_components/photoframe_bridge/protocol.py`, keeping it dependency-free (no `frame_ha_bridge` import) so HACS installs need no Rust
 - [ ] T022 Expose the new types through the PyO3 bindings in `packages/frame-ha-bridge/src/lib.rs` and `packages/frame-ha-bridge/python/frame_ha_bridge/__init__.py`
 - [ ] T023 Add `tests/test_protocol_parity.py` asserting `protocol.py` and the Rust definitions agree on message names, field names, and enum values — the guard for "one protocol, two languages, one source of truth"
-- [ ] T024 Migrate `custom_components/photoframe_bridge/__init__.py` from `async_setup` + `CONFIG_SCHEMA` to config entries: `async_setup_entry`, `async_unload_entry`, `async_reload_entry`, and `async_remove_entry` (FR-044, FR-046, Principle IX)
-- [ ] T025 Create `custom_components/photoframe_bridge/const.py` entries for the new storage keys, entity platforms, defaults from `PresentationSettings`, and service names
-- [ ] T026 Rework `custom_components/photoframe_bridge/controller.py` into `control_server.py`: a config-entry-owned WebSocket server with `hello` authentication, a 5-second unauthenticated timeout, 30-second pings, and per-frame session state. Rebuild it on HA's bundled `aiohttp` and **delete the `websockets` entry from `manifest.json` requirements** — the current code imports `websockets.legacy.server`, which was removed in websockets 14 while the manifest permits `>=13,<15`, so it breaks at import on 14.x
+- [x] T024 Migrate `custom_components/photoframe_bridge/__init__.py` from `async_setup` + `CONFIG_SCHEMA` to config entries: `async_setup_entry`, `async_unload_entry`, `async_reload_entry`, and `async_remove_entry` (FR-044, FR-046, Principle IX)
+- [x] T025 Create `custom_components/photoframe_bridge/const.py` entries for the new storage keys, entity platforms, defaults from `PresentationSettings`, and service names
+- [x] T026 Rework `custom_components/photoframe_bridge/controller.py` into `control_server.py`: a config-entry-owned WebSocket server with `hello` authentication, a 5-second unauthenticated timeout, 30-second pings, and per-frame session state. Rebuild it on HA's bundled `aiohttp` and **delete the `websockets` entry from `manifest.json` requirements** — the current code imports `websockets.legacy.server`, which was removed in websockets 14 while the manifest permits `>=13,<15`, so it breaks at import on 14.x
 - [ ] T027 Add `custom_components/photoframe_bridge/entity.py` with a `PhotoFrameEntity` base that wires the device registry entry, `frame_id` unique IDs, and availability driven by the control channel
 - [ ] T028 Create `custom_components/photoframe_bridge/coordinator.py` with a `DataUpdateCoordinator` subclass owning per-frame runtime state (`PhotoPool`, cursor, connection state) as specified in [data-model.md](./data-model.md)
 - [ ] T029 [P] Add `tests/test_control_server.py` covering `hello` authentication, rejection of a bad token, the unauthenticated timeout, and `correlation_id` echo
-- [ ] T030 Create `packages/frame-firmware/src/control_client.rs`: WebSocket client, `hello` on connect, exponential backoff from 1 s to 60 s with jitter, and a message dispatch loop
+- [x] T030 WebSocket client with reconnect backoff and a dispatch loop. **The implementation already existed** in `packages/frame-firmware/src/runtime.rs` (`ThinClientRuntime`, `WebSocketControlPlaneTransport`, `MediaRenderExecutor`) but was never called - which is what all the "never used" warnings were. Now started from `main.rs`. Two crashes this exposed and fixed: ESP-IDF pthreads default to a 3 KB stack, which the WebSocket handshake overflows, and 32 KB stacks will not fit in internal RAM once Wi-Fi and the display are up, so both thread stacks are placed in PSRAM
 - [ ] T031 [P] Add reconnect-behaviour tests for the backoff schedule in `packages/frame-firmware/src/control_client.rs` (host-testable — keep the backoff calculation free of ESP-IDF types)
 
 **Checkpoint**: A frame can connect, authenticate, and exchange control messages with Home
@@ -124,16 +124,16 @@ display correctly and cross-fade cleanly. No Home Assistant needed (quickstart V
 - [x] T045 [US3] Implement the `fill` treatment in `renderer.py`: proportional cover-fit and centre crop for photos matching the panel's aspect ratio (FR-021)
 - [x] T046 [US3] Implement the `letterbox_blur` treatment in `renderer.py` for portrait-on-landscape: a blurred, darkened, zoomed copy of the photo as backdrop with the sharp full photo composited on top (FR-022)
 - [x] T047 [US3] Enforce baseline JPEG encoding in `renderer.py` (`progressive=False`, quality 85, `optimize=True`) — the P4 hardware decoder rejects progressive JPEG
-- [ ] T048 [US3] Create `custom_components/photoframe_bridge/photo_store.py`: content-addressed `photo_id` from `sha256(item_id + source_id + geometry + pipeline_version)`, atomic writes, and LRU eviction
-- [ ] T049 [US3] Create `custom_components/photoframe_bridge/http_view.py` registering an authenticated `HomeAssistantView` at `/api/photoframe_bridge/photo/{photo_id}`, validating the bearer frame token and returning the status codes in [control-protocol.md](./contracts/control-protocol.md)
+- [x] T048 [US3] Create `custom_components/photoframe_bridge/photo_store.py`: content-addressed `photo_id` from `sha256(item_id + source_id + geometry + pipeline_version)`, atomic writes, and LRU eviction
+- [x] T049 [US3] Create `custom_components/photoframe_bridge/http_view.py` registering an authenticated `HomeAssistantView` at `/api/photoframe_bridge/photo/{photo_id}`, validating the bearer frame token and returning the status codes in [control-protocol.md](./contracts/control-protocol.md)
 
 ### Tests
 
 - [x] T050 [P] [US3] Add `tests/test_renderer.py` asserting every output re-parses as **baseline** (not progressive) JPEG — the failure mode that would silently break on hardware
 - [x] T051 [P] [US3] Add orientation tests to `tests/test_renderer.py` covering all 8 EXIF orientation values
 - [x] T052 [P] [US3] Add geometry tests to `tests/test_renderer.py`: output is exactly the requested size, aspect ratio preserved, for landscape, portrait, square, oversized, and undersized inputs
-- [ ] T053 [P] [US3] Add `tests/test_photo_store.py` covering content-addressing idempotence, `pipeline_version` cache invalidation, and LRU eviction order
-- [ ] T054 [P] [US3] Add `tests/test_http_view.py` covering 200, 401 on a bad token, 404 on an evicted photo, and 503 while preparation is in flight
+- [x] T053 [P] [US3] Add `tests/test_photo_store.py` covering content-addressing idempotence, `pipeline_version` cache invalidation, and LRU eviction order
+- [x] T054 [P] [US3] Add `tests/test_http_view.py` covering 200, 401 on a bad token, 404 on an evicted photo, and 503 while preparation is in flight
 - [ ] T055 [US3] Assemble the awkward test-photo corpus from quickstart V3 (8 EXIF orientations, 50 MP, 200x150, CMYK, PNG+alpha, progressive JPEG, a video) under `tests/fixtures/photos/`
 
 **Checkpoint**: Hand-placed photos display correctly and transition smoothly (quickstart V3). US3 is
@@ -174,7 +174,7 @@ demonstrable on its own.
 - [ ] T064 [US1] Derive a stable `frame_id` from the P4 eFuse MAC in `packages/frame-firmware/src/ownership_store.rs`, surviving reboots, resets, and network changes (FR-005)
 - [ ] T065 [US1] Persist the controller binding and frame token to NVS in `packages/frame-firmware/src/ownership_store.rs`, and refuse a claim from a different controller while adopted (FR-006)
 - [ ] T066 [US1] Implement mDNS re-resolution in `packages/frame-firmware/src/control_client.rs` so a Home Assistant that changed address is rediscovered rather than requiring re-adoption
-- [ ] T067 [US1] Create `custom_components/photoframe_bridge/config_flow.py` and set `"config_flow": true` plus `"zeroconf": ["_photoframe._tcp.local."]` in `manifest.json`, with `async_step_zeroconf`: parse TXT, set `unique_id = frame_id`, and `_abort_if_unique_id_configured(updates={CONF_HOST: host})` so a moved frame updates in place
+- [ ] T067 [US1] **Partially done**: `config_flow.py` exists with a manual add-by-frame-ID step, an options flow, and `"config_flow": true` in the manifest. Still to do is the zeroconf half - `async_step_zeroconf` plus `"zeroconf": ["_photoframe._tcp.local."]` in `manifest.json`, with `async_step_zeroconf`: parse TXT, set `unique_id = frame_id`, and `_abort_if_unique_id_configured(updates={CONF_HOST: host})` so a moved frame updates in place
 - [ ] T068 [US1] Add `async_step_confirm` to `config_flow.py` showing the frame's name and panel geometry, taking the owner's chosen name, and minting the `frame_token`
 - [ ] T069 [US1] Abort discovery with `already_adopted` in `config_flow.py` when the TXT record says `adopted=1` and the binding is not ours (FR-006)
 - [ ] T070 [US1] Add `async_step_user` manual host entry to `config_flow.py` for networks where mDNS does not cross subnets
@@ -197,10 +197,10 @@ photos appear within 60 s (quickstart V2).
 
 ### The provider seam
 
-- [ ] T076 [US2] Create `custom_components/photoframe_bridge/providers/__init__.py` with the `PhotoProvider` ABC, the `Capabilities` dataclass, the `register_provider` registry, and the exception hierarchy from [photo-provider.md](./contracts/photo-provider.md)
-- [ ] T077 [US2] Define `Collection`, `PhotoRef`, and `Selection` in `providers/__init__.py` per [data-model.md](./data-model.md)
-- [ ] T078 [US2] Add provider-contributed config-flow hooks (`async_config_steps`, `async_selection_steps`) to the ABC so `config_flow.py` never branches on provider identity
-- [ ] T079 [P] [US2] Implement `providers/sample.py`: a bundled photo set, no auth, no collections — the seam proof and the content an adopted-but-unconfigured frame shows so it is never blank
+- [x] T076 [US2] Create `custom_components/photoframe_bridge/providers/__init__.py` with the `PhotoProvider` ABC, the `Capabilities` dataclass, the `register_provider` registry, and the exception hierarchy from [photo-provider.md](./contracts/photo-provider.md)
+- [x] T077 [US2] Define `Collection`, `PhotoRef`, and `Selection` in `providers/__init__.py` per [data-model.md](./data-model.md)
+- [x] T078 [US2] Add provider-contributed config-flow hooks (`async_config_steps`, `async_selection_steps`) to the ABC so `config_flow.py` never branches on provider identity
+- [x] T079 [P] [US2] Implement `providers/sample.py`: a bundled photo set, no auth, no collections — the seam proof and the content an adopted-but-unconfigured frame shows so it is never blank
 - [ ] T080 [P] [US2] Implement `providers/media_source.py` over Home Assistant's `media_source` helpers, browsing to collections and yielding items lazily; `supports_live_collections=True`
 - [ ] T081 [US2] Implement `providers/google_photos_picker.py`: `application_credentials` wiring, the `photospicker.mediaitems.readonly` scope, and `sessions.create`
 - [ ] T082 [US2] Implement the picker wait loop in `providers/google_photos_picker.py`, polling `sessions.get` until `mediaItemsSet` and honouring the server-supplied `pollingConfig` rather than a fixed interval
@@ -215,8 +215,8 @@ photos appear within 60 s (quickstart V2).
 
 ### Delivery
 
-- [ ] T091 [US2] Implement pool resolution in `coordinator.py`: resolve the selection to a `PhotoPool`, deduplicate across collections, filter non-image media (FR-018), and cap memory by consuming provider iterators lazily
-- [ ] T092 [US2] Implement play ordering in `coordinator.py` as a seeded permutation over indices, so no photo repeats until the pool is exhausted and the order survives a reload (FR-015)
+- [x] T091 [US2] Implement pool resolution in `coordinator.py`: resolve the selection to a `PhotoPool`, deduplicate across collections, filter non-image media (FR-018), and cap memory by consuming provider iterators lazily
+- [x] T092 [US2] Implement play ordering in `coordinator.py` as a seeded permutation over indices, so no photo repeats until the pool is exhausted and the order survives a reload (FR-015)
 - [ ] T093 [US2] Implement scheduled pool refresh in `coordinator.py`, scheduled **only** when `capabilities.supports_live_collections` (FR-014, [research.md](./research.md) R2)
 - [ ] T094 [US2] Implement the `enqueue` push in `coordinator.py`: prepare upcoming photos, send `photo_id` + HA-relative path + `sha256` + evictions, honouring the frame's `cache_report` so photos it already holds are not re-sent
 - [ ] T095 [US2] Implement `enqueue` and `show` handling in `packages/frame-firmware/src/control_client.rs`: fetch over HTTP, verify the `sha256`, write to a temp file, and `rename` atomically so a power loss cannot leave a half photo (edge case)
@@ -225,8 +225,8 @@ photos appear within 60 s (quickstart V2).
 
 ### Tests
 
-- [ ] T098 [P] [US2] Add `tests/providers/test_conformance.py` — the shared suite parametrized over the registry, covering all six conformance rules in [photo-provider.md](./contracts/photo-provider.md)
-- [ ] T099 [P] [US2] Add `tests/test_provider_isolation.py`: fail the build if any provider key or provider class name appears outside `providers/` — the mechanical enforcement of Principle III
+- [x] T098 [P] [US2] Add `tests/providers/test_conformance.py` — the shared suite parametrized over the registry, covering all six conformance rules in [photo-provider.md](./contracts/photo-provider.md)
+- [x] T099 [P] [US2] Add `tests/test_provider_isolation.py`: fail the build if any provider key or provider class name appears outside `providers/` — the mechanical enforcement of Principle III
 - [ ] T100 [P] [US2] Add `tests/providers/test_google_photos_picker.py` with a mocked Picker API covering session creation, the poll loop, pagination, `baseUrl` expiry and re-listing, and session expiry
 - [ ] T101 [P] [US2] Add `tests/test_coordinator.py` covering deduplication, the no-repeat-until-exhausted invariant, refresh scheduling by capability, and cache-aware enqueue
 
