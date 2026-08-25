@@ -1,5 +1,4 @@
 use crate::control::ScreenStatus;
-use crate::models::{AlbumMetadata, GoogleUser, PhotoMetadata};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum AppPhase {
@@ -22,7 +21,6 @@ impl AppPhase {
 pub enum NetworkPhase {
     Unprovisioned,
     Provisioning,
-    Authorizing,
     Connected,
 }
 
@@ -31,7 +29,6 @@ impl NetworkPhase {
         match self {
             Self::Unprovisioned => "Unprovisioned",
             Self::Provisioning => "Provisioning",
-            Self::Authorizing => "Authorizing",
             Self::Connected => "Connected",
         }
     }
@@ -63,22 +60,11 @@ pub struct AppState {
     pub phase: AppPhase,
     pub network_phase: NetworkPhase,
     pub controller_phase: ControllerPhase,
-    pub photos: Vec<PhotoMetadata>,
-    pub albums: Vec<AlbumMetadata>,
-    pub current_album: Option<AlbumMetadata>,
     pub active_media_url: Option<String>,
     pub screen_status: ScreenStatus,
     pub display_brightness: Option<u8>,
-    pub google_user: Option<GoogleUser>,
-    pub access_token: Option<String>,
-    pub auth_user_code: Option<String>,
-    pub auth_verification_uri: Option<String>,
     pub provisioning_ssid: Option<String>,
     pub provisioning_password: Option<String>,
-    pub local_setup_host: Option<String>,
-    pub local_setup_url: Option<String>,
-    pub local_setup_ip_url: Option<String>,
-    pub pairing_code: Option<String>,
     pub device_id: Option<String>,
     pub device_name: Option<String>,
 }
@@ -89,22 +75,11 @@ impl AppState {
             phase: AppPhase::Splash,
             network_phase: NetworkPhase::Unprovisioned,
             controller_phase: ControllerPhase::NotStarted,
-            photos: Vec::new(),
-            albums: Vec::new(),
-            current_album: None,
             active_media_url: None,
             screen_status: ScreenStatus::Idle,
             display_brightness: None,
-            google_user: None,
-            access_token: None,
-            auth_user_code: None,
-            auth_verification_uri: None,
             provisioning_ssid: None,
             provisioning_password: None,
-            local_setup_host: None,
-            local_setup_url: None,
-            local_setup_ip_url: None,
-            pairing_code: None,
             device_id: None,
             device_name: None,
         }
@@ -123,10 +98,6 @@ impl AppState {
             self.clear_provisioning_details();
         }
 
-        if phase != NetworkPhase::Authorizing {
-            self.clear_auth_info();
-        }
-
         self.network_phase = phase;
 
         if self.network_phase != NetworkPhase::Connected {
@@ -140,10 +111,6 @@ impl AppState {
 
     pub fn set_controller_error(&mut self, error: impl Into<String>) {
         self.controller_phase = ControllerPhase::Error(error.into());
-    }
-
-    pub fn set_google_user(&mut self, google_user: GoogleUser) {
-        self.google_user = Some(google_user);
     }
 
     pub fn set_active_media_url(&mut self, media_url: impl Into<String>) {
@@ -162,35 +129,6 @@ impl AppState {
         self.display_brightness = brightness;
     }
 
-    pub fn set_access_token(&mut self, access_token: impl Into<String>) {
-        self.access_token = Some(access_token.into());
-    }
-
-    pub fn clear_access_token(&mut self) {
-        self.access_token = None;
-    }
-
-    pub fn clear_google_user(&mut self) {
-        self.google_user = None;
-    }
-
-    pub fn google_user_email(&self) -> Option<&str> {
-        self.google_user
-            .as_ref()
-            .map(|google_user| google_user.email.as_str())
-    }
-
-    pub fn google_user_subject(&self) -> Option<&str> {
-        self.google_user
-            .as_ref()
-            .map(|google_user| google_user.subject.as_str())
-    }
-
-    pub fn set_auth_info(&mut self, user_code: String, verification_uri: String) {
-        self.auth_user_code = Some(user_code);
-        self.auth_verification_uri = Some(verification_uri);
-    }
-
     pub fn set_provisioning_details(&mut self, ssid: String, password: String) {
         self.provisioning_ssid = Some(ssid);
         self.provisioning_password = Some(password);
@@ -201,21 +139,6 @@ impl AppState {
         self.provisioning_password = None;
     }
 
-    pub fn set_local_setup_details(
-        &mut self,
-        host: impl Into<String>,
-        url: Option<String>,
-        ip_url: Option<String>,
-    ) {
-        self.local_setup_host = Some(host.into());
-        self.local_setup_url = url;
-        self.local_setup_ip_url = ip_url;
-    }
-
-    pub fn set_pairing_code(&mut self, pairing_code: impl Into<String>) {
-        self.pairing_code = Some(pairing_code.into());
-    }
-
     pub fn set_device_identity(
         &mut self,
         device_id: impl Into<String>,
@@ -223,11 +146,6 @@ impl AppState {
     ) {
         self.device_id = Some(device_id.into());
         self.device_name = Some(device_name.into());
-    }
-
-    pub fn clear_auth_info(&mut self) {
-        self.auth_user_code = None;
-        self.auth_verification_uri = None;
     }
 }
 
@@ -239,8 +157,7 @@ impl Default for AppState {
 
 #[cfg(test)]
 mod tests {
-    use super::{AppPhase, AppState, NetworkPhase};
-    use crate::models::GoogleUser;
+    use super::{AppPhase, AppState, ControllerPhase, NetworkPhase};
 
     #[test]
     fn app_state_transitions_from_splash_to_ready() {
@@ -258,47 +175,29 @@ mod tests {
     }
 
     #[test]
-    fn network_phase_transition_clears_stale_setup_data() {
+    fn leaving_provisioning_clears_the_wifi_credential() {
         let mut state = AppState::new();
 
         state.set_provisioning_details("Frame Setup".to_string(), "secret".to_string());
-        state.set_auth_info("ABCD-12".to_string(), "google.com/device".to_string());
-
         state.set_network_phase(NetworkPhase::Provisioning);
         assert_eq!(state.provisioning_ssid.as_deref(), Some("Frame Setup"));
-        assert_eq!(state.auth_user_code, None);
 
-        state.set_auth_info("ABCD-12".to_string(), "google.com/device".to_string());
-        state.set_network_phase(NetworkPhase::Authorizing);
-        assert_eq!(state.provisioning_ssid, None);
-        assert_eq!(state.auth_user_code.as_deref(), Some("ABCD-12"));
-
+        // The Wi-Fi password must not linger in memory once provisioning ends
+        // (Principle II: the frame keeps only what it still needs).
         state.set_network_phase(NetworkPhase::Connected);
         assert_eq!(state.provisioning_ssid, None);
         assert_eq!(state.provisioning_password, None);
-        assert_eq!(state.auth_user_code, None);
-        assert_eq!(state.auth_verification_uri, None);
     }
 
     #[test]
-    fn app_state_tracks_google_user_profile() {
+    fn losing_the_network_resets_the_controller_phase() {
         let mut state = AppState::new();
-        let google_user = GoogleUser {
-            email: "owner@example.com".to_string(),
-            subject: "owner-subject".to_string(),
-            refresh_token: "refresh-token".to_string(),
-        };
 
-        state.set_google_user(google_user.clone());
+        state.set_network_phase(NetworkPhase::Connected);
+        state.set_controller_phase(ControllerPhase::Connected);
+        assert_eq!(state.controller_phase, ControllerPhase::Connected);
 
-        assert_eq!(state.google_user, Some(google_user));
-        assert_eq!(state.google_user_email(), Some("owner@example.com"));
-        assert_eq!(state.google_user_subject(), Some("owner-subject"));
-
-        state.clear_google_user();
-
-        assert_eq!(state.google_user, None);
-        assert_eq!(state.google_user_email(), None);
-        assert_eq!(state.google_user_subject(), None);
+        state.set_network_phase(NetworkPhase::Unprovisioned);
+        assert_eq!(state.controller_phase, ControllerPhase::NotStarted);
     }
 }

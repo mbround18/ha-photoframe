@@ -9,5 +9,3 @@ opt-level = "s"
 debug = true
 opt-level = "z"
 
-[patch.crates-io]
-i-slint-core = { path = "vendor/i-slint-core" }

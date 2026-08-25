@@ -19,34 +19,23 @@ export component MainWindow inherits Window {
     in property <string> network-status: "Unprovisioned";
     in property <string> controller-status: "NotStarted";
     in property <string> detail-text: "Preparing setup environment...";
-    in property <string> auth_user_code: "";
-    in property <string> auth_verification_uri: "";
     in property <string> provisioning_ssid: "";
     in property <string> provisioning_password: "";
-    in property <string> local_setup_url: "";
-    in property <string> local_setup_ip_url: "";
-    in property <string> pairing_code: "";
-    in property <image> pairing-qr-image;
-    in property <string> pairing-qr-url: "";
-    in property <string> owner_email: "";
     in property <string> screen_override: "";
     in property <bool> preview_mode: false;
     in property <[image]> photos: [];
     property <int> current_photo_index: 0;
 
     // Logic remains identical to your original to ensure backend compatibility
-    private property <string> active_screen: screen_override != "" ? screen_override : 
+    private property <string> active_screen: screen_override != "" ? screen_override :
         app-phase == "Ready" && controller-status != "Connected" ? "ha-syncing" :
-        app-phase == "Ready" ? "ready" : 
-        (pairing_code != "" && auth_user_code == "" && (local_setup_url != "" || local_setup_ip_url != "")) ? "browser-pairing" : 
-        network-status == "Provisioning" ? "wifi-connect" : 
-        network-status == "Authorizing" ? "pairing" : 
+        app-phase == "Ready" ? "ready" :
+        network-status == "Provisioning" ? "wifi-connect" :
         app-phase == "Splash" ? "welcome" : "status";
 
-    private property <int> active_step: active_screen == "ready" ? 5 :
-        active_screen == "ha-syncing" ? 4 :
-        (active_screen == "pairing" || active_screen == "browser-pairing") ? 3 : 
-        active_screen == "wifi-connect" ? 2 : 
+    private property <int> active_step: active_screen == "ready" ? 4 :
+        active_screen == "ha-syncing" ? 3 :
+        active_screen == "wifi-connect" ? 2 :
         app-phase == "Setup" ? 1 : 0;
 
     private property <string> display_status: app-phase == "Ready" && controller-status != "NotStarted"
@@ -66,26 +55,22 @@ export component MainWindow inherits Window {
 
     private property <string> display_detail_text:
         app-phase == "Ready" && controller-status == "Searching"
-            ? (owner_email != "" ? "Signed in as " + owner_email + ". Searching for your Home Assistant instance now." : "Searching for your Home Assistant instance now.")
+            ? "Searching for your Home Assistant instance now."
         : app-phase == "Ready" && controller-status == "AwaitingConfiguration"
-            ? (owner_email != "" ? "Signed in as " + owner_email + ". Open Home Assistant to add or configure this frame before it can receive photos." : "Open Home Assistant to add or configure this frame before it can receive photos.")
+            ? "Open Home Assistant to add this frame before it can receive photos."
         : app-phase == "Ready" && controller-status == "Connected"
-            ? (owner_email != "" ? "Signed in as " + owner_email + ". Home Assistant is connected and can now control what this frame displays." : "Home Assistant is connected and can now control what this frame displays.")
+            ? "Home Assistant is connected and can now choose what this frame shows."
         : detail-text;
 
     // Hero Text Mappings
-    private property <string> hero_title: active_screen == "ready" ? "Frame Ready!" : 
+    private property <string> hero_title: active_screen == "ready" ? "Frame Ready!" :
         active_screen == "ha-syncing" && controller-status == "Searching" ? "Finding Home Assistant" :
         active_screen == "ha-syncing" ? "Awaiting Home Assistant" :
-        active_screen == "browser-pairing" ? "Pair Device" : 
-        active_screen == "pairing" ? "Google Sign-in" : 
         active_screen == "wifi-connect" ? "Join Setup Wi-Fi" : "Initializing";
 
-    private property <string> hero_body: active_screen == "ready" ? "Your frame is now synced and ready to display your life's best moments." :
-        active_screen == "ha-syncing" && controller-status == "Searching" ? "Your frame is online and signed in. It is now searching for Home Assistant on the same network." :
+    private property <string> hero_body: active_screen == "ready" ? "Your frame is ready to display your life's best moments." :
+        active_screen == "ha-syncing" && controller-status == "Searching" ? "Your frame is online. It is now looking for Home Assistant on the same network." :
         active_screen == "ha-syncing" ? "Home Assistant can see this frame. Open Home Assistant to finish adding it before photos start appearing here." :
-        active_screen == "browser-pairing" ? "Your frame is online. Scan the QR code with your phone to open the frame directly, or use the backup pass code if you need it." :
-        active_screen == "pairing" ? "Enter the Google code on your phone to grant access to your Photos library." :
         active_screen == "wifi-connect" ? "Connect to the network below to provide your home Wi-Fi credentials." : "Checking hardware and preparing the setup flow...";
 
     callback connect-to-wifi();
@@ -128,18 +113,11 @@ export component MainWindow inherits Window {
                     active-screen: root.active_screen;
                     hero-title: root.hero_title;
                     hero-body: root.hero_body;
-                    auth-user-code: root.auth_user_code;
                     provisioning-ssid: root.provisioning_ssid;
-                    pairing-code: root.pairing_code;
                 }
 
                 InfoGrid {
                     active-screen: root.active_screen;
-                    local-setup-url: root.local_setup_url;
-                    pairing-code: root.pairing_code;
-                    pairing-qr-image: root.pairing-qr-image;
-                    pairing-qr-url: root.pairing-qr-url;
-                    owner-email: root.owner_email;
                     network-status: root.display_status;
                     status-text: root.display_status_text;
                 }

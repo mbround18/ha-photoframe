@@ -19,8 +19,7 @@ export component PreviewToolbar inherits Rectangle {
 
         PreviewChip { label: "Splash"; selected: root.active-screen == "welcome"; tapped => { root.preview-select("welcome"); } }
         PreviewChip { label: "WiFi"; selected: root.active-screen == "wifi-connect"; tapped => { root.preview-select("wifi-connect"); } }
-        PreviewChip { label: "Pair"; selected: root.active-screen == "browser-pairing"; tapped => { root.preview-select("browser-pairing"); } }
-        PreviewChip { label: "Auth"; selected: root.active-screen == "pairing"; tapped => { root.preview-select("pairing"); } }
+        PreviewChip { label: "HA"; selected: root.active-screen == "ha-syncing"; tapped => { root.preview-select("ha-syncing"); } }
         PreviewChip { label: "Ready"; selected: root.active-screen == "ready"; tapped => { root.preview-select("ready"); } }
     }
 }

@@ -6,8 +6,8 @@ pub mod models;
 pub mod state;
 
 pub use control::{
-	parse_control_message, CommandRequest, ControlEvent, ControlMessageError,
-	ControllerRegistration, DeviceCommand, DeviceHealth, IncomingControlMessage, OutboundStatusMessage,
-	RenderPresentation, RenderRequest, ScreenStatus, TransitionType,
+    CommandRequest, ControlEvent, ControlMessageError, ControllerRegistration, DeviceCommand,
+    DeviceHealth, IncomingControlMessage, OutboundStatusMessage, RenderPresentation, RenderRequest,
+    ScreenStatus, TransitionType, parse_control_message,
 };
 pub use state::{AppPhase, AppState, ControllerPhase, NetworkPhase};

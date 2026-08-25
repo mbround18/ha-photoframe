@@ -1,13 +1,13 @@
 [project]
 name = "photoframe"
 version = "0.1.0"
-description = "Add your description here"
+description = "Home Assistant-managed digital photo frame: ESP32-P4 firmware and the photoframe_bridge integration"
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.13"
 dependencies = [
     "esptool>=5.1.0",
     "frame-ha-bridge",
-    "websockets>=13,<15"
+    "websockets>=13,<14"
 ]
 
 [tool.uv.sources]
@@ -17,6 +17,17 @@ frame-ha-bridge = { workspace = true }
 members = [
     "packages/frame-ha-bridge",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "pytest-homeassistant-custom-component>=0.13",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
 
 [build-system]
 requires = ["uv_build>=0.11.7,<0.12"]

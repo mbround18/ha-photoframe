@@ -25,7 +25,7 @@ ft6x06 = "0.1.2"
 
 # The `image` crate is the de-facto standard for image processing in Rust.
 # We use it specifically for its JPEG decoding capability to process the
-# photos downloaded from Google Photos into a raw pixel format that can be
+# photos downloaded from Home Assistant into a raw pixel format that can be
 # sent to the display.
 image = { version = "0.25.10", default-features = false, features = ["jpeg"] }
 
@@ -33,10 +33,9 @@ image = { version = "0.25.10", default-features = false, features = ["jpeg"] }
 # component, respectively.
 anyhow = "1.0.102"
 log = "0.4.29"
-qrcodegen = "1.8.0"
 
 [target.'cfg(not(target_os = "espidf"))'.dependencies]
-slint = { version = "1.15.1", default-features = false, features = [
+slint = { version = "1.17.1", default-features = false, features = [
   "compat-1-2",
   "std",
   "renderer-software",
@@ -45,7 +44,11 @@ slint = { version = "1.15.1", default-features = false, features = [
 [target.'cfg(target_os = "espidf")'.dependencies]
 esp-idf-hal = "0.46.2"
 esp-idf-sys = { version = "0.37.2", default-features = false }
-slint = { version = "1.15.1", default-features = false, features = [
+# "libm" (not "std") on the embedded target: slint's "std" feature drags in
+# i-slint-backend-selector -> fontique -> memmap2, which does not build for
+# riscv32 espidf. slint 1.15 had a libm/std float conflict inside i-slint-core
+# that forced a vendored patch; 1.17 fixes it upstream, so no fork is needed.
+slint = { version = "1.17.1", default-features = false, features = [
   "compat-1-2",
   "renderer-software",
   "unsafe-single-threaded",
@@ -56,4 +59,4 @@ slint = { version = "1.15.1", default-features = false, features = [
 # `slint-build` is the build-time component of Slint. It parses the `.slint`
 # UI definition files and generates the corresponding Rust code that is then
 # compiled into our `frame-ui` crate.
-slint-build = "1.15.1"
+slint-build = "1.17.1"

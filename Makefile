@@ -9,6 +9,7 @@ ESP_IDF_VERSION := v5.5.3
 ESP_IDF_TOOLS_DIR := $(HOME)/.espressif
 ESP_IDF_PYTHON_ENV := $(ESP_IDF_TOOLS_DIR)/python_env/idf5.5_py3.12_env
 ESP_IDF_PYTHON_BIN := $(ESP_IDF_PYTHON_ENV)/bin/python
+PARTITION_OVERLAY := $(CURDIR)/target/sdkconfig.partition.generated
 RELEASE_BUILD_DIR := target/$(FIRMWARE_TARGET)/release/build
 RELEASE_DIR := target/$(FIRMWARE_TARGET)/release
 APP_ELF := $(RELEASE_DIR)/frame-firmware
@@ -17,17 +18,10 @@ BOOTLOADER_BIN := $(RELEASE_DIR)/bootloader.bin
 PARTITION_TABLE_BIN := $(RELEASE_DIR)/partition-table.bin
 BASE_PATH := /usr/bin:/bin:$(HOME)/.cargo/bin
 SYSTEM_ENV := /usr/bin/env
-FIRMWARE_BUILD_ENV := $(SYSTEM_ENV) -u VIRTUAL_ENV -u CONDA_PREFIX -u CONDA_DEFAULT_ENV -u PYTHONHOME -u PYTHONPATH -u UV_PROJECT_ENVIRONMENT PATH="$(BASE_PATH)" PYTHON=/usr/bin/python3 MCU=esp32p4 ESP_IDF_VERSION=$(ESP_IDF_VERSION) ESP_IDF_TOOLS_INSTALL_DIR=global ESP_IDF_SYS_ROOT_CRATE=frame-firmware ESP_IDF_SDKCONFIG_DEFAULTS="$(CURDIR)/sdkconfig.defaults" IDF_PYTHON_ENV_PATH="$(ESP_IDF_PYTHON_ENV)"
+FIRMWARE_BUILD_ENV := $(SYSTEM_ENV) -u VIRTUAL_ENV -u CONDA_PREFIX -u CONDA_DEFAULT_ENV -u PYTHONHOME -u PYTHONPATH -u UV_PROJECT_ENVIRONMENT PATH="$(BASE_PATH)" PYTHON=/usr/bin/python3 MCU=esp32p4 ESP_IDF_VERSION=$(ESP_IDF_VERSION) ESP_IDF_TOOLS_INSTALL_DIR=global ESP_IDF_SYS_ROOT_CRATE=frame-firmware ESP_IDF_SDKCONFIG_DEFAULTS="$(CURDIR)/sdkconfig.defaults;$(PARTITION_OVERLAY)" IDF_PYTHON_ENV_PATH="$(ESP_IDF_PYTHON_ENV)"
 FIRMWARE_TOOL_ENV := $(SYSTEM_ENV) -u VIRTUAL_ENV -u CONDA_PREFIX -u CONDA_DEFAULT_ENV -u PYTHONHOME -u PYTHONPATH -u UV_PROJECT_ENVIRONMENT PATH="$(BASE_PATH):$(ESP_IDF_PYTHON_ENV)/bin" IDF_PYTHON_ENV_PATH="$(ESP_IDF_PYTHON_ENV)"
-DIST_DIR := dist
-PACKAGE_STAGING_DIR := $(DIST_DIR)/package-staging
-HA_COMPONENT_SOURCE := packages/frame-ha-bridge/homeassistant/custom_components/photoframe_bridge
-HA_COMPONENT_DOMAIN := photoframe_bridge
-ROOT_VERSION := $(shell sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml | head -n1)
-HA_PACKAGE_NAME := $(HA_COMPONENT_DOMAIN)-$(ROOT_VERSION)
-HA_PACKAGE_TGZ := $(DIST_DIR)/$(HA_PACKAGE_NAME).tgz
 
-.PHONY: bootstrap-python-env bootstrap-rust-tools ensure-common-components-dir clean-firmware-ui-cache build format lint flash monitor dev package clean-package
+.PHONY: check-host test-host generate-partition-overlay bootstrap-python-env bootstrap-rust-tools ensure-common-components-dir clean-firmware-ui-cache build format lint flash monitor dev
 
 bootstrap-python-env:
 	@if [ ! -x "$(ESP_IDF_PYTHON_BIN)" ]; then \
@@ -42,17 +36,27 @@ bootstrap-rust-tools:
 ensure-common-components-dir:
 	@mkdir -p tmp/common_components
 
+# ESP-IDF resolves CONFIG_PARTITION_TABLE_CUSTOM_FILENAME relative to its own
+# generated project directory, so the path has to be absolute -- and therefore
+# cannot be committed. Generate it here instead.
+generate-partition-overlay:
+	@mkdir -p $(dir $(PARTITION_OVERLAY))
+	@printf 'CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="%s"\n' "$(CURDIR)/partitions_16mb.csv" > $(PARTITION_OVERLAY)
+
 clean-firmware-ui-cache:
 	@find target/$(FIRMWARE_TARGET) -maxdepth 3 -type d -name 'esp-idf-sys-*' -exec rm -rf {} + 2>/dev/null || true
 
-build: bootstrap-python-env bootstrap-rust-tools ensure-common-components-dir clean-firmware-ui-cache
+build: bootstrap-python-env bootstrap-rust-tools ensure-common-components-dir generate-partition-overlay clean-firmware-ui-cache
 	$(FIRMWARE_BUILD_ENV) $(FIRMWARE_BUILD_CMD)
 
 format:
 	cargo fmt --all
 
+# Host-crate lint only, for the same reason check-host is scoped that way:
+# frame-ui pulls a system fontconfig on the host. Firmware-target lint runs
+# through `cargo firmware-check`.
 lint:
-	$(FIRMWARE_BUILD_ENV) cargo clippy --workspace --all-targets --target $(HOST_TARGET) -- -D warnings
+	$(HOST_ENV) cargo clippy $(HOST_CRATES) --all-targets --target $(HOST_TARGET) -- -D warnings
 
 flash: build
 	@set -e; \
@@ -81,12 +85,24 @@ dev:
 	@$(MAKE) flash
 	@$(MAKE) monitor
 
-clean-package:
-	rm -rf $(PACKAGE_STAGING_DIR)
+# Host-testable crates only. frame-ui and frame-firmware require the ESP-IDF
+# target: on the host, slint 1.15 pulls fontique -> system fontconfig, which we
+# deliberately do not depend on (see docs/Hardware-Reference.md and the
+# constitution's Hardware & Toolchain Constraints).
+HOST_CRATES := -p frame-core -p frame-api -p frame-net -p frame-ha-bridge -p frame-captive-portal
 
-package: clean-package
-	@set -e; \
-	mkdir -p "$(PACKAGE_STAGING_DIR)/custom_components" "$(DIST_DIR)"; \
-	cp -R "$(HA_COMPONENT_SOURCE)" "$(PACKAGE_STAGING_DIR)/custom_components/$(HA_COMPONENT_DOMAIN)"; \
-	tar -C "$(PACKAGE_STAGING_DIR)" -czf "$(HA_PACKAGE_TGZ)" custom_components; \
-	echo "Created $(HA_PACKAGE_TGZ)"
+# frame-ha-bridge links libpython through pyo3. Rather than depend on a system
+# `libpython3-dev` (apt), resolve a uv-managed CPython that ships libpython --
+# see the constitution's Hardware & Toolchain Constraints.
+PYO3_PY := $(shell uv python find 3.13 2>/dev/null)
+PYO3_LIBDIR := $(if $(PYO3_PY),$(abspath $(dir $(PYO3_PY))/../lib))
+HOST_ENV := PYO3_PYTHON="$(PYO3_PY)" LD_LIBRARY_PATH="$(PYO3_LIBDIR):$$LD_LIBRARY_PATH"
+
+check-host:
+	$(HOST_ENV) cargo check $(HOST_CRATES) --target $(HOST_TARGET)
+
+test-host:
+	@if [ -z "$(PYO3_PY)" ]; then \
+		echo "No uv-managed CPython 3.13 found. Run: uv python install 3.13" >&2; exit 1; \
+	fi
+	$(HOST_ENV) cargo test $(HOST_CRATES) --target $(HOST_TARGET)

@@ -122,10 +122,9 @@ impl fmt::Display for ControlMessageError {
                 write!(f, "control message cannot include both media_url and cmd")
             }
             Self::EmptyMediaUrl => write!(f, "control message media_url cannot be empty"),
-            Self::MetadataWithoutMediaUrl => write!(
-                f,
-                "control message metadata requires a media_url payload"
-            ),
+            Self::MetadataWithoutMediaUrl => {
+                write!(f, "control message metadata requires a media_url payload")
+            }
             Self::InvalidBrightness(value) => write!(
                 f,
                 "control message brightness must be between 0 and 100 inclusive, got {value}"
@@ -137,18 +136,18 @@ impl fmt::Display for ControlMessageError {
 impl Error for ControlMessageError {}
 
 pub fn parse_control_message(payload: &str) -> Result<ControlEvent, ControlMessageError> {
-    let message: IncomingControlMessage =
-        serde_json::from_str(payload).map_err(|error| ControlMessageError::InvalidJson(error.to_string()))?;
+    let message: IncomingControlMessage = serde_json::from_str(payload)
+        .map_err(|error| ControlMessageError::InvalidJson(error.to_string()))?;
     validate_control_message(message)
 }
 
 pub fn validate_control_message(
     message: IncomingControlMessage,
 ) -> Result<ControlEvent, ControlMessageError> {
-    if let Some(brightness) = message.brightness {
-        if brightness > 100 {
-            return Err(ControlMessageError::InvalidBrightness(brightness));
-        }
+    if let Some(brightness) = message.brightness
+        && brightness > 100
+    {
+        return Err(ControlMessageError::InvalidBrightness(brightness));
     }
 
     let action_count = usize::from(message.media_url.is_some())
@@ -200,8 +199,8 @@ pub fn validate_control_message(
 #[cfg(test)]
 mod tests {
     use super::{
-        parse_control_message, validate_control_message, ControlEvent, ControlMessageError,
-        ControllerRegistration, DeviceCommand, IncomingControlMessage, TransitionType,
+        ControlEvent, ControlMessageError, ControllerRegistration, DeviceCommand,
+        IncomingControlMessage, TransitionType, parse_control_message, validate_control_message,
     };
 
     #[test]

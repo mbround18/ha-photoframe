@@ -1,6 +1,5 @@
 use anyhow::Result;
-use frame_core::{AppState, ControllerPhase, models::PhotoMetadata};
-use qrcodegen::{QrCode, QrCodeEcc};
+use frame_core::{AppState, ControllerPhase};
 use slint::ComponentHandle;
 use slint::{Image, Rgba8Pixel, SharedPixelBuffer, VecModel};
 use std::rc::Rc;
@@ -94,15 +93,8 @@ pub struct UiStateSnapshot {
     pub network_status: String,
     pub controller_status: String,
     pub detail_text: String,
-    pub owner_email: String,
-    pub auth_user_code: String,
-    pub auth_verification_uri: String,
     pub provisioning_ssid: String,
     pub provisioning_password: String,
-    pub local_setup_url: String,
-    pub local_setup_ip_url: String,
-    pub pairing_code: String,
-    pub photos: Vec<PhotoMetadata>,
 }
 
 impl UiStateSnapshot {
@@ -114,17 +106,6 @@ impl UiStateSnapshot {
             network_status: state.network_phase.as_str().to_string(),
             controller_status: state.controller_phase.as_str().to_string(),
             detail_text: detail_text(state),
-            owner_email: state.google_user_email().unwrap_or_default().to_string(),
-            auth_user_code: state
-                .auth_user_code
-                .as_deref()
-                .unwrap_or_default()
-                .to_string(),
-            auth_verification_uri: state
-                .auth_verification_uri
-                .as_deref()
-                .unwrap_or_default()
-                .to_string(),
             provisioning_ssid: state
                 .provisioning_ssid
                 .as_deref()
@@ -135,22 +116,6 @@ impl UiStateSnapshot {
                 .as_deref()
                 .unwrap_or_default()
                 .to_string(),
-            local_setup_url: state
-                .local_setup_url
-                .as_deref()
-                .unwrap_or_default()
-                .to_string(),
-            local_setup_ip_url: state
-                .local_setup_ip_url
-                .as_deref()
-                .unwrap_or_default()
-                .to_string(),
-            pairing_code: state
-                .pairing_code
-                .as_deref()
-                .unwrap_or_default()
-                .to_string(),
-            photos: state.photos.clone(),
         }
     }
 }
@@ -229,15 +194,9 @@ fn status_text(state: &AppState) -> &'static str {
             ControllerPhase::AwaitingConfiguration => {
                 "Home Assistant found. Finish setup from Home Assistant to start sending photos."
             }
-            ControllerPhase::Searching => {
-                "Looking for Home Assistant on your network."
-            }
-            ControllerPhase::Error(_) => {
-                "Home Assistant connection needs attention."
-            }
-            ControllerPhase::NotStarted => {
-                "Preparing the Home Assistant connection."
-            }
+            ControllerPhase::Searching => "Looking for Home Assistant on your network.",
+            ControllerPhase::Error(_) => "Home Assistant connection needs attention.",
+            ControllerPhase::NotStarted => "Preparing the Home Assistant connection.",
         },
     }
 }
@@ -256,29 +215,12 @@ fn detail_text(state: &AppState) -> String {
             "The frame is waiting to start setup. Network details and the next action will appear here shortly."
                 .to_string()
         }
-        (frame_core::AppPhase::Setup, frame_core::NetworkPhase::Authorizing) => {
-            if state.auth_user_code.is_some() {
-                "Finish Google sign-in on another device using the code shown on screen. The frame will continue automatically once approval is complete."
-                    .to_string()
-            } else {
-                "Scan the QR code or open the local setup link on your phone, then confirm you can see this frame before Google sign-in begins."
-                    .to_string()
-            }
-        }
         (frame_core::AppPhase::Setup, frame_core::NetworkPhase::Connected) => {
-            if let Some(owner_email) = state.google_user_email() {
-                format!("Signed in as {owner_email}. Finalizing your frame so it can begin showing photos.")
-            } else {
-                "Wi-Fi is connected. Finalizing setup and preparing the local pairing flow."
-                    .to_string()
-            }
+            "Wi-Fi is connected. Finishing setup so Home Assistant can find this frame."
+                .to_string()
         }
         (frame_core::AppPhase::Ready, _) => {
-            let prefix = if let Some(owner_email) = state.google_user_email() {
-                format!("Signed in as {owner_email}. ")
-            } else {
-                String::new()
-            };
+            let prefix = String::new();
 
             match &state.controller_phase {
                 ControllerPhase::NotStarted => {
@@ -312,25 +254,18 @@ fn apply_snapshot_to_window(window: &MainWindow, snapshot: &UiStateSnapshot) {
     window.set_network_status(snapshot.network_status.as_str().into());
     window.set_controller_status(snapshot.controller_status.as_str().into());
     window.set_detail_text(snapshot.detail_text.as_str().into());
-    window.set_owner_email(snapshot.owner_email.as_str().into());
-    window.set_auth_user_code(snapshot.auth_user_code.as_str().into());
-    window.set_auth_verification_uri(snapshot.auth_verification_uri.as_str().into());
     window.set_provisioning_ssid(snapshot.provisioning_ssid.as_str().into());
     window.set_provisioning_password(snapshot.provisioning_password.as_str().into());
-    window.set_local_setup_url(snapshot.local_setup_url.as_str().into());
-    window.set_local_setup_ip_url(snapshot.local_setup_ip_url.as_str().into());
-    window.set_pairing_code(snapshot.pairing_code.as_str().into());
 
-    let pairing_qr_url = browser_pairing_qr_url(snapshot);
-    window.set_pairing_qr_url(pairing_qr_url.as_deref().unwrap_or_default().into());
-    window.set_pairing_qr_image(build_pairing_qr_image(pairing_qr_url.as_deref()));
-
-    let photos = current_photo_images(snapshot);
+    let photos = current_photo_images();
     let photos_model = Rc::new(VecModel::from(photos));
     window.set_photos(photos_model.into());
 }
 
-fn current_photo_images(snapshot: &UiStateSnapshot) -> Vec<Image> {
+/// The frame's current image comes from the rendered-image store, not from
+/// the UI snapshot: the snapshot no longer carries provider photo metadata now
+/// that Home Assistant owns photo sourcing.
+fn current_photo_images() -> Vec<Image> {
     match rendered_image_snapshot() {
         Ok(rendered) => rendered
             .image
@@ -340,7 +275,7 @@ fn current_photo_images(snapshot: &UiStateSnapshot) -> Vec<Image> {
             .collect(),
         Err(error) => {
             log::warn!("failed to read rendered image state: {error:#}");
-            snapshot.photos.iter().map(|_| Image::default()).collect()
+            Vec::new()
         }
     }
 }
@@ -359,76 +294,6 @@ fn rendered_image_to_slint_image(image: &RenderedImage) -> Image {
     }
 
     Image::from_rgba8(buffer)
-}
-
-fn browser_pairing_qr_url(snapshot: &UiStateSnapshot) -> Option<String> {
-    if snapshot.pairing_code.is_empty() || !snapshot.auth_user_code.is_empty() {
-        return None;
-    }
-
-    let base_url = if !snapshot.local_setup_ip_url.is_empty() {
-        snapshot.local_setup_ip_url.as_str()
-    } else if !snapshot.local_setup_url.is_empty() {
-        snapshot.local_setup_url.as_str()
-    } else {
-        return None;
-    };
-
-    let separator = if base_url.contains('?') { '&' } else { '?' };
-    Some(format!(
-        "{base_url}{separator}link_code={}",
-        snapshot.pairing_code
-    ))
-}
-
-fn build_pairing_qr_image(target: Option<&str>) -> Image {
-    target.and_then(render_pairing_qr_image).unwrap_or_default()
-}
-
-fn render_pairing_qr_image(target: &str) -> Option<Image> {
-    let qr = QrCode::encode_text(target, QrCodeEcc::Medium).ok()?;
-    let quiet_zone = 4_u32;
-    let scale = 6_u32;
-    let qr_size = qr.size() as u32;
-    let side = (qr_size + quiet_zone * 2) * scale;
-    let black = Rgba8Pixel {
-        r: 2,
-        g: 6,
-        b: 23,
-        a: 255,
-    };
-    let white = Rgba8Pixel {
-        r: 248,
-        g: 250,
-        b: 252,
-        a: 255,
-    };
-
-    let mut buffer = SharedPixelBuffer::<Rgba8Pixel>::new(side, side);
-    let pixels = buffer.make_mut_slice();
-    for y in 0..side {
-        for x in 0..side {
-            let module_x = x / scale;
-            let module_y = y / scale;
-            let pixel = if module_x >= quiet_zone
-                && module_y >= quiet_zone
-                && module_x < qr_size + quiet_zone
-                && module_y < qr_size + quiet_zone
-                && qr.get_module(
-                    (module_x - quiet_zone) as i32,
-                    (module_y - quiet_zone) as i32,
-                ) {
-                black
-            } else {
-                white
-            };
-
-            let offset = (y * side + x) as usize;
-            pixels[offset] = pixel;
-        }
-    }
-
-    Some(Image::from_rgba8(buffer))
 }
 
 struct SlintUiAdapter {
@@ -607,19 +472,12 @@ mod tests {
         let mut state = AppState::new();
         state.begin_setup();
         state.set_network_phase(NetworkPhase::Connected);
-        state.set_local_setup_details(
-            "192.168.1.44",
-            Some("http://192.168.1.44".to_string()),
-            Some("http://192.168.1.44".to_string()),
-        );
-        state.set_pairing_code("482731");
+        state.set_device_identity("p4-a1b2c3d4e5f6", "Living Room Frame");
 
         let snapshot = UiStateSnapshot::from_app_state(&state);
 
         assert_eq!(snapshot.app_phase, "Setup");
         assert_eq!(snapshot.network_status, "Connected");
-        assert_eq!(snapshot.pairing_code, "482731");
-        assert_eq!(snapshot.local_setup_url, "http://192.168.1.44");
         assert!(snapshot.detail_text.contains("Wi-Fi is connected"));
     }
 }

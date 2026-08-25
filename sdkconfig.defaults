@@ -10,5 +10,31 @@ CONFIG_CACHE_L2_CACHE_LINE_128B=y
 CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
 CONFIG_ESP_WIFI_REMOTE_ENABLED=y
 CONFIG_PARTITION_TABLE_CUSTOM=y
-CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="/home/mbruno/development/photoframe/partitions_16mb.csv"
+# CONFIG_PARTITION_TABLE_CUSTOM_FILENAME is NOT set here on purpose. ESP-IDF
+# resolves it against its own generated project directory, not this repo, so a
+# relative path cannot work and an absolute one would be machine-specific. The
+# Makefile generates an overlay with the correct absolute path at build time.
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=16384
+
+# --- ESP-Hosted link to the ESP32-C6 radio co-processor ---
+# Verified against the board schematic; see docs/Hardware-Reference.md section 4.
+# The C6 is on its own SDIO bus (GPIO14-19); the TF card is on GPIO39-44 and
+# does not contend with it.
+CONFIG_ESP_HOSTED_ENABLED=y
+CONFIG_ESP_HOSTED_SDIO_HOST_INTERFACE=y
+CONFIG_ESP_HOSTED_SDIO_SLOT=1
+CONFIG_ESP_HOSTED_SDIO_PIN_D0=14
+CONFIG_ESP_HOSTED_SDIO_PIN_D1=15
+CONFIG_ESP_HOSTED_SDIO_PIN_D2=16
+CONFIG_ESP_HOSTED_SDIO_PIN_D3=17
+CONFIG_ESP_HOSTED_SDIO_PIN_CLK=18
+CONFIG_ESP_HOSTED_SDIO_PIN_CMD=19
+CONFIG_ESP_HOSTED_SDIO_4_BIT_BUS=y
+CONFIG_ESP_HOSTED_SDIO_CLOCK_FREQ_KHZ=40000
+# P4 GPIO54 drives the C6 EN pin, so the host can hard-reset a wedged co-processor.
+CONFIG_ESP_HOSTED_GPIO_SLAVE_RESET_SLAVE=54
+CONFIG_ESP_HOSTED_SDIO_RESET_ACTIVE_HIGH=y
+CONFIG_ESP_HOSTED_SDIO_RESET_DELAY_MS=1500
+CONFIG_ESP_HOSTED_SLAVE_RESET_ON_EVERY_HOST_BOOTUP=y
+CONFIG_ESP_HOSTED_IDF_SLAVE_TARGET="esp32c6"
+CONFIG_ESP_WIFI_REMOTE_LIBRARY_HOSTED=y

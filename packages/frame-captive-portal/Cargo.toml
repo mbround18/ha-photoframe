@@ -8,7 +8,6 @@ anyhow = "1.0.82"
 log = "0.4.21"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-frame-api = { path = "../frame-api" }
 url = "2.5.8"
 
 [target.'cfg(target_os = "espidf")'.dependencies]

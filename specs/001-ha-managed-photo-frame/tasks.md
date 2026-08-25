@@ -39,25 +39,29 @@ longer carries the on-device Google OAuth this feature replaces.
 
 **No story label** — shared infrastructure.
 
-- [ ] T001 Fix the hard-coded absolute path in `sdkconfig.defaults`: replace `CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="/home/mbruno/development/photoframe/partitions_16mb.csv"` with a repo-relative `partitions_16mb.csv`, and verify `make build` works from a clean clone
-- [ ] T002 [P] Add a `storage`/`nvs` review to `partitions_16mb.csv`, confirming the `nvs` partition is large enough for the Wi-Fi credential, frame token, controller binding, and presentation settings from [data-model.md](./data-model.md)
-- [ ] T003 [P] Add `/source`, `rustc-ice-*.txt`, and `.claude/settings.local.json` to `.gitignore` and confirm `git check-ignore` passes for each
-- [ ] T004 Move the Home Assistant component from `packages/frame-ha-bridge/homeassistant/custom_components/photoframe_bridge/` to `custom_components/photoframe_bridge/` at the repository root, preserving git history with `git mv` (required by HACS — see [research.md](./research.md) R7)
-- [ ] T005 Create `hacs.json` at the repository root declaring `name`, `content_in_root: false`, `homeassistant` minimum version, and `render_readme`
-- [ ] T006 Update `custom_components/photoframe_bridge/manifest.json`: real `documentation` and `issue_tracker` URLs, `config_flow: true`, `iot_class: local_push`, `integration_type: device`, and a `version` matching the release tag
-- [ ] T007 Remove the now-obsolete `package` target and `HA_COMPONENT_SOURCE` variables from `Makefile`, since HACS installs from the repo root instead of a tarball
-- [ ] T008 [P] Delete `packages/frame-api/src/oauth.rs` and `packages/frame-api/tests/google_photos.rs`, and remove their module declarations from `packages/frame-api/src/lib.rs` (Principle II)
-- [ ] T009 [P] Delete the Google OAuth routes, device-code polling, and consent templates from `packages/frame-captive-portal/src/lib.rs`, leaving only Wi-Fi setup
-- [ ] T010 [P] Remove Google/OAuth phases, fields, and UI strings from `packages/frame-core/src/state.rs` and `packages/frame-firmware/src/setup_state_store.rs`
-- [ ] T011 [P] Remove `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET` from `.env.sample`, `scripts/bootstrap-env.sh`, `packages/frame-firmware/build.rs`, and the README's build instructions
-- [ ] T012 Verify no Google or OAuth symbols remain outside `custom_components/`: `grep -ri "oauth\|google" packages/ --include=*.rs` returns nothing
-- [ ] T012a Add `packages/frame-core/tests/no_third_party_credentials.rs`: an architecture test that fails the build if any credential-shaped identifier (`oauth`, `refresh_token`, `client_secret`, `api_key`, `access_token`) appears anywhere in `packages/`, allowing only `wifi_psk` and `frame_token`. This makes Constitution Principle II mechanically enforced rather than merely asserted, as Principles III and VIII already are
-- [ ] T013 Create `.github/workflows/ci.yaml` running `cargo fmt --check`, `cargo clippy -D warnings`, and `cargo test --workspace --target x86_64-unknown-linux-gnu`
-- [ ] T014 [P] Add a `hassfest` job to `.github/workflows/ci.yaml` using `home-assistant/actions/hassfest`
-- [ ] T015 [P] Add a `HACS` validation job to `.github/workflows/ci.yaml` using `hacs/action` with `category: integration`
-- [ ] T016 [P] Add `pytest` + `pytest-homeassistant-custom-component` dev dependencies to `pyproject.toml` and a `tests/conftest.py` enabling custom integrations
-- [ ] T017 Update `README.md` to describe the new architecture: HA owns photo sourcing and credentials, the frame is a rendering client, and installation is via HACS
-- [ ] T017a [P] Pin the board's verified configuration in `sdkconfig.defaults`: `CONFIG_BSP_LCD_TYPE_1280_800=y`, the ESP-Hosted SDIO pin map, and `CONFIG_ESP_HOSTED_GPIO_SLAVE_RESET_SLAVE=54`, cross-checked against [Hardware-Reference.md](../../docs/Hardware-Reference.md) §4 and §8
+- [x] T001 Make the firmware build portable. The hard-coded `CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="/home/mbruno/development/photoframe/..."` could not simply become a relative path: ESP-IDF resolves it against its own generated project directory. The committed `sdkconfig.defaults` now omits the key entirely and the Makefile generates `target/sdkconfig.partition.generated` with the absolute path at build time, appended to `ESP_IDF_SDKCONFIG_DEFAULTS`
+- [x] T002 [P] Add a `storage`/`nvs` review to `partitions_16mb.csv`, confirming the `nvs` partition is large enough for the Wi-Fi credential, frame token, controller binding, and presentation settings from [data-model.md](./data-model.md)
+- [x] T003 [P] Add `/source`, `rustc-ice-*.txt`, and `.claude/settings.local.json` to `.gitignore` and confirm `git check-ignore` passes for each
+- [x] T004 Move the Home Assistant component from `packages/frame-ha-bridge/homeassistant/custom_components/photoframe_bridge/` to `custom_components/photoframe_bridge/` at the repository root, preserving git history with `git mv` (required by HACS — see [research.md](./research.md) R7)
+- [x] T005 Create `hacs.json` at the repository root declaring `name`, `content_in_root: false`, `homeassistant` minimum version, and `render_readme`
+- [x] T006 Update `custom_components/photoframe_bridge/manifest.json`: real `documentation` and `issue_tracker` URLs, `iot_class: local_push`, `integration_type: device`, and a `version` matching the release tag. Keep `config_flow: false` and pin `websockets>=13,<14` for now — `hassfest` fails on `config_flow: true` without a `config_flow.py`, and the current `controller.py` imports `websockets.legacy.server`, which websockets 14 removed. **T067 flips `config_flow` to true; T026 drops the `websockets` requirement entirely.**
+- [x] T007 Remove the now-obsolete `package` target and `HA_COMPONENT_SOURCE` variables from `Makefile`, since HACS installs from the repo root instead of a tarball
+- [x] T008 [P] Delete `packages/frame-api/src/oauth.rs` and `packages/frame-api/tests/google_photos.rs`, and remove their module declarations from `packages/frame-api/src/lib.rs` (Principle II)
+- [x] T009 [P] Delete the Google OAuth routes, device-code polling, and consent templates from `packages/frame-captive-portal/src/lib.rs`, leaving only Wi-Fi setup
+- [x] T010 [P] Remove Google/OAuth phases, fields, and UI strings from `packages/frame-core/src/state.rs` and `packages/frame-firmware/src/setup_state_store.rs`
+- [x] T011 [P] Remove `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET` from `.env.sample`, `scripts/bootstrap-env.sh`, `packages/frame-firmware/build.rs`, and the README's build instructions
+- [x] T012 Verify no Google or OAuth symbols remain outside `custom_components/`: `grep -ri "oauth\|google" packages/ --include=*.rs` returns nothing
+- [x] T012a Add `packages/frame-core/tests/no_third_party_credentials.rs`: an architecture test that fails the build if any credential-shaped identifier (`oauth`, `refresh_token`, `client_secret`, `api_key`, `access_token`) appears anywhere in `packages/`, allowing only `wifi_psk` and `frame_token`. This makes Constitution Principle II mechanically enforced rather than merely asserted, as Principles III and VIII already are
+- [x] T013 Create `.github/workflows/ci.yaml` running `cargo fmt --check`, `cargo clippy -D warnings`, and `cargo test --workspace --target x86_64-unknown-linux-gnu`
+- [x] T014 [P] Add a `hassfest` job to `.github/workflows/ci.yaml` using `home-assistant/actions/hassfest`
+- [x] T015 [P] Add a `HACS` validation job to `.github/workflows/ci.yaml` using `hacs/action` with `category: integration`
+- [x] T016 [P] Add `pytest` + `pytest-homeassistant-custom-component` dev dependencies to `pyproject.toml` and a `tests/conftest.py` enabling custom integrations
+- [x] T017 Update `README.md` to describe the new architecture: HA owns photo sourcing and credentials, the frame is a rendering client, and installation is via HACS
+- [x] T017a [P] Pin the board's verified configuration in `sdkconfig.defaults`: `CONFIG_BSP_LCD_TYPE_1280_800=y`, the ESP-Hosted SDIO pin map, and `CONFIG_ESP_HOSTED_GPIO_SLAVE_RESET_SLAVE=54`, cross-checked against [Hardware-Reference.md](../../docs/Hardware-Reference.md) §4 and §8
+
+- [x] T001a Remove the dead `[patch.crates-io] i-slint-core = { path = "vendor/i-slint-core" }` from the root `Cargo.toml`. `vendor/` had been deleted, so dependency resolution failed for the whole workspace and nothing built
+- [x] T001b Fix the root cause the vendored slint copy was patching around: `packages/frame-ui/Cargo.toml` enabled slint's `libm` feature on the ESP-IDF target, but ESP-IDF is a **std** target. `libm` routes float maths through `num_traits::Euclid` while std's inherent `f32::rem_euclid` is still in scope, which fails to compile inside `i-slint-core`. Switching that target to the `std` feature removes the need for a vendored fork
+- [x] T001c Make `frame-ha-bridge`'s Rust tests runnable without a system `libpython3-dev`: `make test-host` resolves a uv-managed CPython that ships `libpython` and exports `PYO3_PYTHON` / `LD_LIBRARY_PATH` (constitution: prefer `uv` over apt)
 
 **Checkpoint**: CI is green on all four jobs; a fresh clone builds firmware; no OAuth code remains.
 
@@ -165,7 +169,7 @@ demonstrable on its own.
 - [ ] T064 [US1] Derive a stable `frame_id` from the P4 eFuse MAC in `packages/frame-firmware/src/ownership_store.rs`, surviving reboots, resets, and network changes (FR-005)
 - [ ] T065 [US1] Persist the controller binding and frame token to NVS in `packages/frame-firmware/src/ownership_store.rs`, and refuse a claim from a different controller while adopted (FR-006)
 - [ ] T066 [US1] Implement mDNS re-resolution in `packages/frame-firmware/src/control_client.rs` so a Home Assistant that changed address is rediscovered rather than requiring re-adoption
-- [ ] T067 [US1] Create `custom_components/photoframe_bridge/config_flow.py` with `async_step_zeroconf`: parse TXT, set `unique_id = frame_id`, and `_abort_if_unique_id_configured(updates={CONF_HOST: host})` so a moved frame updates in place
+- [ ] T067 [US1] Create `custom_components/photoframe_bridge/config_flow.py` and set `"config_flow": true` plus `"zeroconf": ["_photoframe._tcp.local."]` in `manifest.json`, with `async_step_zeroconf`: parse TXT, set `unique_id = frame_id`, and `_abort_if_unique_id_configured(updates={CONF_HOST: host})` so a moved frame updates in place
 - [ ] T068 [US1] Add `async_step_confirm` to `config_flow.py` showing the frame's name and panel geometry, taking the owner's chosen name, and minting the `frame_token`
 - [ ] T069 [US1] Abort discovery with `already_adopted` in `config_flow.py` when the TXT record says `adopted=1` and the binding is not ours (FR-006)
 - [ ] T070 [US1] Add `async_step_user` manual host entry to `config_flow.py` for networks where mDNS does not cross subnets

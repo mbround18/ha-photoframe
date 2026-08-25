@@ -1,11 +1,9 @@
 use anyhow::Context;
 use frame_core::{
-    AppState, ControlEvent, ControllerPhase, DeviceCommand, OutboundStatusMessage,
-    RenderRequest, ScreenStatus, parse_control_message,
+    AppState, ControlEvent, ControllerPhase, DeviceCommand, OutboundStatusMessage, RenderRequest,
+    ScreenStatus, parse_control_message,
 };
-use frame_ui::{
-    RenderedImage, clear_rendered_image, set_controller_phase, set_rendered_image,
-};
+use frame_ui::{RenderedImage, clear_rendered_image, set_controller_phase, set_rendered_image};
 use std::net::TcpStream;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, TryRecvError};
 use std::thread::{self, JoinHandle};
@@ -102,7 +100,9 @@ impl ThinClientRuntime {
 
         let render_join = thread::Builder::new()
             .name("frame-render-controller".to_string())
-            .spawn(move || run_render_controller_loop(render_executor, control_rx, render_status_tx))
+            .spawn(move || {
+                run_render_controller_loop(render_executor, control_rx, render_status_tx)
+            })
             .expect("failed to spawn render controller thread");
 
         Self {
@@ -541,6 +541,18 @@ fn run_render_controller_loop<E>(
                         },
                     ),
                 }
+            }
+            ControlEvent::Registration(registration) => {
+                // Adoption is handled on the control channel during the claim
+                // handshake, not in the render loop. Log it so an unexpected
+                // mid-session registration is visible on serial, and keep the
+                // slideshow running either way (T072).
+                tracing::info!(
+                    target: "frame_firmware",
+                    claimed = registration.claimed,
+                    display_name = registration.display_name.as_deref().unwrap_or_default(),
+                    "received controller registration on the render channel"
+                );
             }
         }
     }

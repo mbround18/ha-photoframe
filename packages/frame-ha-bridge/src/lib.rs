@@ -155,7 +155,10 @@ mod tests {
 
         let parsed = parse_control_payload(&payload).expect("built payload should parse");
         assert_eq!(parsed.kind, "render");
-        assert_eq!(parsed.media_url.as_deref(), Some("https://example.com/photo.jpg"));
+        assert_eq!(
+            parsed.media_url.as_deref(),
+            Some("https://example.com/photo.jpg")
+        );
         assert_eq!(parsed.transition_type.as_deref(), Some("fade"));
         assert_eq!(parsed.brightness, Some(55));
     }
@@ -173,8 +176,8 @@ mod tests {
 
     #[test]
     fn rejects_unknown_command() {
-        let error = build_command_payload("unsupported", None)
-            .expect_err("unsupported commands must fail");
+        let error =
+            build_command_payload("unsupported", None).expect_err("unsupported commands must fail");
 
         assert!(error.to_string().contains("unsupported device command"));
     }

@@ -6,7 +6,7 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 # `serde` is used for serializing and deserializing the shared data models
-# that will be passed between the other crates. For example, the Google
+# that will be passed between the other crates. For example, the control-plane
 # Photos album or photo metadata. The "derive" feature enables procedural
 # macros for easily implementing `Serialize` and `Deserialize`.
 serde = { version = "1.0.228", features = ["derive"] }
