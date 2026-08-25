@@ -208,10 +208,10 @@ photos appear within 60 s (quickstart V2).
 - [ ] T084 [US2] Implement `async_fetch_bytes` in `providers/google_photos_picker.py`: request `=w2560-h1600` (2x the panel, so crops stay sharp) with an `Authorization: Bearer` header, re-listing when a `baseUrl` has passed its 60-minute life
 - [ ] T085 [US2] Track the session `expireTime` in `providers/google_photos_picker.py` and set `Selection.expires_at`; declare `supports_live_collections=False`, `selection_expires=True` ([research.md](./research.md) R2)
 - [ ] T086 [US2] Create `custom_components/photoframe_bridge/application_credentials.py` for the Google OAuth authorization server
-- [ ] T087 [US2] Add the provider-selection and selection steps to `custom_components/photoframe_bridge/config_flow.py` as an options flow, delegating entirely to the provider hooks from T078
+- [x] T087 [US2] Add the provider-selection and selection steps to `custom_components/photoframe_bridge/config_flow.py` as an options flow, delegating entirely to the provider hooks from T078
 - [ ] T088 [US2] Surface frozen-selection and expiry semantics in the options flow UI, stating plainly that a picker selection is fixed and how to revise it (FR-014, FR-014a, US2 scenario 8)
 - [ ] T089 [US2] Add a re-pick repair flow (`async_step_reauth` / `async_step_reconfigure`) to `config_flow.py`, raising `ConfigEntryAuthFailed` on `NeedsReauth` and `SelectionExpired` (FR-014b, FR-038)
-- [ ] T090 [US2] Report an empty resolved pool at selection time in the options flow rather than letting it surface later as a blank frame (edge case)
+- [x] T090 [US2] Report an empty resolved pool at selection time in the options flow rather than letting it surface later as a blank frame (edge case)
 
 ### Delivery
 
@@ -221,7 +221,7 @@ photos appear within 60 s (quickstart V2).
 - [ ] T094 [US2] Implement the `enqueue` push in `coordinator.py`: prepare upcoming photos, send `photo_id` + HA-relative path + `sha256` + evictions, honouring the frame's `cache_report` so photos it already holds are not re-sent
 - [ ] T095 [US2] Implement `enqueue` and `show` handling in `packages/frame-firmware/src/control_client.rs`: fetch over HTTP, verify the `sha256`, write to a temp file, and `rename` atomically so a power loss cannot leave a half photo (edge case)
 - [ ] T096 [US2] Implement prepared-photo fetching in `packages/frame-api/src/client.rs` with the bearer frame token and the status-code handling from [control-protocol.md](./contracts/control-protocol.md)
-- [ ] T097 [US2] Apply a selection change without restart or re-adoption in `coordinator.py`, clearing the old queue and pushing the new pool (FR-013, SC-008)
+- [x] T097 [US2] Apply a selection change without restart or re-adoption in `coordinator.py`, clearing the old queue and pushing the new pool (FR-013, SC-008)
 
 ### Tests
 

@@ -22,6 +22,7 @@ from homeassistant.core import callback
 from homeassistant.helpers import config_validation as cv
 
 from .const import (
+    CONF_COLLECTIONS,
     CONF_BRIGHTNESS,
     CONF_FRAME_ID,
     CONF_FRAME_TOKEN,
@@ -117,13 +118,19 @@ class PhotoFrameConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class PhotoFrameOptionsFlow(OptionsFlow):
-    """Presentation settings and photo source."""
+    """Presentation settings, photo source, and which albums to show."""
+
+    def __init__(self) -> None:
+        self._pending: dict[str, Any] = {}
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         if user_input is not None:
-            return self.async_create_entry(data=user_input)
+            # Choosing the source is only half the job: the owner still has to
+            # say *which* albums. Carry the settings forward and ask.
+            self._pending = dict(user_input)
+            return await self.async_step_collections()
 
         # Provider choices come from the registry, so adding a provider makes it
         # selectable without touching this flow (Principle III).
@@ -150,3 +157,59 @@ class PhotoFrameOptionsFlow(OptionsFlow):
             }
         )
         return self.async_show_form(step_id="init", data_schema=schema)
+
+    async def async_step_collections(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Pick which albums, folders or buckets this frame shows."""
+        from .providers import (
+            Capabilities,
+            ProviderError,
+            available_providers,
+        )
+
+        if user_input is not None:
+            self._pending[CONF_COLLECTIONS] = user_input.get(CONF_COLLECTIONS, [])
+            return self.async_create_entry(data=self._pending)
+
+        provider_key = self._pending.get(CONF_SOURCE, "sample")
+        provider_cls = available_providers().get(provider_key)
+        if provider_cls is None:
+            return self.async_create_entry(data=self._pending)
+
+        # Providers that need Home Assistant to browse take it; the others
+        # ignore the argument. Keeping that here rather than in the provider
+        # avoids every provider having to know about config flows.
+        try:
+            provider = provider_cls(self.hass)  # type: ignore[call-arg]
+        except TypeError:
+            provider = provider_cls()
+
+        try:
+            collections = await provider.async_list_collections()
+        except ProviderError as err:
+            return self.async_abort(
+                reason="source_unavailable",
+                description_placeholders={"error": str(err)},
+            )
+
+        if not collections:
+            # Nothing to choose between: don't make the owner click through an
+            # empty form.
+            self._pending[CONF_COLLECTIONS] = []
+            return self.async_create_entry(data=self._pending)
+
+        current = self.config_entry.options.get(CONF_COLLECTIONS) or [
+            c.collection_id for c in collections
+        ]
+        choices = {c.collection_id: c.title for c in collections}
+
+        schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_COLLECTIONS,
+                    default=[c for c in current if c in choices],
+                ): cv.multi_select(choices),
+            }
+        )
+        return self.async_show_form(step_id="collections", data_schema=schema)

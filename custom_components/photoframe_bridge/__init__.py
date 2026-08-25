@@ -18,6 +18,7 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.device_registry import DeviceInfo
 
 from .const import (
+    CONF_COLLECTIONS,
     CONF_FRAME_ID,
     CONF_FRAME_TOKEN,
     CONF_SOURCE,
@@ -89,12 +90,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         provider_cls = providers["sample"]
         provider_key = "sample"
 
-    provider = provider_cls()
-    collections = await provider.async_list_collections()
-    selection = Selection(
-        source_id=provider_key,
-        collection_ids=tuple(c.collection_id for c in collections),
-    )
+    # Providers that browse Home Assistant need it; the rest ignore it.
+    try:
+        provider = provider_cls(hass)  # type: ignore[call-arg]
+    except TypeError:
+        provider = provider_cls()
+
+    chosen = entry.options.get(CONF_COLLECTIONS)
+    if chosen:
+        collection_ids = tuple(chosen)
+    else:
+        # No explicit choice yet (a frame adopted before the source was
+        # configured): fall back to everything the source offers, so the frame
+        # shows something rather than nothing.
+        try:
+            collection_ids = tuple(
+                c.collection_id for c in await provider.async_list_collections()
+            )
+        except Exception as err:  # noqa: BLE001 - never block setup on a source
+            _LOGGER.warning("could not list collections for %s: %s", provider_key, err)
+            collection_ids = ()
+
+    selection = Selection(source_id=provider_key, collection_ids=collection_ids)
 
     coordinator = FrameCoordinator(
         hass,
@@ -108,16 +125,31 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await coordinator.async_start()
     runtime.coordinators[frame_id] = coordinator
 
-    # Show something as soon as the frame turns up, rather than waiting a whole
-    # rotation interval for the first photo.
-    def _on_frame_event(changed_frame_id: str) -> None:
-        if changed_frame_id != frame_id:
-            return
+    # Get a photo onto the frame as soon as it is reachable.
+    #
+    # Two paths, because either can happen first: the frame may already be
+    # connected when the integration is set up (it retries in a loop, so by the
+    # time someone finishes adoption it usually is), or it may connect later.
+    # Relying only on the connect event meant a frame that was already waiting
+    # sat on "Waiting for photos" until the next rotation tick -- up to five
+    # minutes after being adopted.
+    def _push_first_photo() -> None:
         session = runtime.server.session(frame_id)
-        if session is not None and session.connected and coordinator.current_photo_id is None:
-            entry.async_create_task(hass, coordinator.async_show_next())
+        if session is None or not session.connected:
+            return
+        if coordinator.current_photo_id is not None:
+            return
+        entry.async_create_background_task(
+            hass, coordinator.async_show_next(), f"{DOMAIN}_first_photo_{frame_id}"
+        )
+
+    def _on_frame_event(changed_frame_id: str) -> None:
+        if changed_frame_id == frame_id:
+            _push_first_photo()
 
     entry.async_on_unload(runtime.server.add_listener(_on_frame_event))
+    # Covers the frame that was already connected before we got here.
+    _push_first_photo()
     entry.async_on_unload(entry.add_update_listener(_async_reload_entry))
 
     _register_services(hass, runtime)

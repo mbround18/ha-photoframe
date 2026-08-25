@@ -130,6 +130,6 @@ def register_provider(cls: type[PhotoProvider]) -> type[PhotoProvider]:
 
 def available_providers() -> dict[str, type[PhotoProvider]]:
     """Import the built-in providers and return the registry."""
-    from . import sample  # noqa: F401  (import registers it)
+    from . import media_source, sample  # noqa: F401  (import registers them)
 
     return dict(PROVIDERS)

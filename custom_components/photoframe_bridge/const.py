@@ -18,6 +18,8 @@ CONF_BRIGHTNESS: Final = "brightness"
 CONF_ORDER: Final = "order"
 CONF_TRANSITION: Final = "transition"
 CONF_SOURCE: Final = "source"
+#: Which albums/folders within the source this frame shows.
+CONF_COLLECTIONS: Final = "collections"
 
 DEFAULT_ROTATION_INTERVAL: Final = 300
 DEFAULT_BRIGHTNESS: Final = 80

@@ -94,6 +94,32 @@ impl Panel {
         Ok(())
     }
 
+    /// Full-screen solid colours, held long enough to study by eye.
+    ///
+    /// Solid fills are the right shape for diagnosing ghosting and banding:
+    /// there is no image content to alias against, and no rotation or text
+    /// rendering involved, so anything visible is the panel or the DSI link
+    /// rather than our drawing code.
+    ///
+    /// Temporary. Remove once the panel is trusted.
+    pub fn diagnostic_colour_sweep(&mut self) {
+        const DWELL: std::time::Duration = std::time::Duration::from_secs(10);
+        for (name, colour) in [
+            ("white", 0xFFFFu16),
+            ("blue", 0x001F),
+            ("red", 0xF800),
+            ("green", 0x07E0),
+        ] {
+            self.rotated.fill(colour);
+            match self.blit() {
+                Ok(()) => log::info!("diagnostic: {name} on screen for 10s"),
+                Err(error) => log::error!("diagnostic: {name} failed: {error:#}"),
+            }
+            std::thread::sleep(DWELL);
+        }
+        log::info!("diagnostic: colour sweep complete");
+    }
+
     /// Clear the whole canvas to one colour.
     pub fn clear(&mut self, colour: Rgb565) {
         self.canvas.fill(RawU16::from(colour).into_inner());
@@ -106,8 +132,12 @@ impl Panel {
     /// appear: the CPU's writes to that PSRAM sit in cache while the DMA engine
     /// reads around them. `draw_bitmap` is the cache-safe path.
     pub fn flush(&mut self) -> Result<()> {
-        rotate_270(&self.canvas, &mut self.rotated);
+        rotate_90(&self.canvas, &mut self.rotated);
+        self.blit()
+    }
 
+    /// Push `self.rotated` to the panel, cache-flushing it first.
+    fn blit(&mut self) -> Result<()> {
         // Flush our writes out of the CPU cache before the DMA engine reads
         // them. The rotated buffer is 2 MB so it lives in PSRAM, and the DPI
         // panel config sets `flags.use_dma2d`. Without this the transfer copies
@@ -182,18 +212,21 @@ impl DrawTarget for Panel {
     }
 }
 
-/// Rotate a `WIDTH x HEIGHT` landscape frame 270 degrees into a
+/// Rotate a `WIDTH x HEIGHT` landscape frame 90 degrees into a
 /// `PANEL_WIDTH x PANEL_HEIGHT` portrait buffer.
 ///
 /// This is the CPU-side rotation the panel cannot do itself (it rejects
 /// `esp_lcd_panel_swap_xy`). Task T034 moves it onto the PPA.
-fn rotate_270(src: &[u16], dst: &mut [u16]) {
+///
+/// The direction is set by how the frame physically hangs: 270 degrees puts the
+/// image upside down on this board, confirmed by reading text off the panel.
+fn rotate_90(src: &[u16], dst: &mut [u16]) {
     debug_assert_eq!(dst.len(), PANEL_WIDTH * PANEL_HEIGHT);
     for y in 0..HEIGHT {
         let row = &src[y * WIDTH..y * WIDTH + WIDTH];
         for (x, pixel) in row.iter().enumerate() {
-            // 270 degrees: (x, y) -> (y, WIDTH - 1 - x)
-            dst[(WIDTH - 1 - x) * PANEL_WIDTH + y] = *pixel;
+            // 90 degrees: (x, y) -> (HEIGHT - 1 - y, x)
+            dst[x * PANEL_WIDTH + (HEIGHT - 1 - y)] = *pixel;
         }
     }
 }

@@ -32,6 +32,9 @@ pub struct FrameUi {
 }
 
 pub fn create_ui() -> Result<FrameUi> {
+    // The colour sweep confirmed solid fills render clean on this panel, so the
+    // diagnostic is retired. `Panel::diagnostic_colour_sweep` is kept for the
+    // next time a display fault needs isolating from our drawing code.
     Ok(FrameUi {
         panel: Panel::init()?,
         showing: Showing::Nothing,

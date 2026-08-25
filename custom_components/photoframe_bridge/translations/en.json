@@ -27,7 +27,17 @@
           "brightness": "Brightness (%)",
           "transition": "Transition"
         }
+      },
+      "collections": {
+        "title": "Which photos?",
+        "description": "Choose the albums or folders this frame should show. New photos added to them will appear on their own.",
+        "data": {
+          "collections": "Albums and folders"
+        }
       }
+    },
+    "abort": {
+      "source_unavailable": "Could not reach that photo source: {error}"
     }
   },
   "services": {
