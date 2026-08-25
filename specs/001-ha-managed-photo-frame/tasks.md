@@ -197,6 +197,12 @@ photos appear within 60 s (quickstart V2).
 
 ### The provider seam
 
+> **Google Photos work is deferred.** Home Assistant's `google_photos` media source is browsable
+> through the generic `media_source` provider already; Google's `.appcreateddata` scope limits what
+> it returns, but that is one click to verify rather than a reason to build a second Google path up
+> front. T081-T086 stay specified as the escape hatch for photos that live only in a Google
+> library. Immich is the recommended source ([research.md](./research.md) R1).
+
 - [x] T076 [US2] Create `custom_components/photoframe_bridge/providers/__init__.py` with the `PhotoProvider` ABC, the `Capabilities` dataclass, the `register_provider` registry, and the exception hierarchy from [photo-provider.md](./contracts/photo-provider.md)
 - [x] T077 [US2] Define `Collection`, `PhotoRef`, and `Selection` in `providers/__init__.py` per [data-model.md](./data-model.md)
 - [x] T078 [US2] Add provider-contributed config-flow hooks (`async_config_steps`, `async_selection_steps`) to the ABC so `config_flow.py` never branches on provider identity

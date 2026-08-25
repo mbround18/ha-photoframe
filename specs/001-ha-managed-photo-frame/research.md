@@ -15,25 +15,48 @@ into the task list.
 
 **[DESIGN-CHANGING]**
 
-**Finding**: The core `google_photos` integration is upload-oriented. Its own documentation says it
-"adds an action for uploading photos and a media source to view or cast the content uploaded by
-Home Assistant." The media source exposes *what Home Assistant itself uploaded*, not the user's
-existing library or albums. There is no album browsing of the user's own library.
+**Finding**, corrected 2026-08-25 by reading Home Assistant's source rather than its docs:
 
-**Decision**: We cannot satisfy User Story 2 for Google Photos by consuming Home Assistant's
-`google_photos` media source. The direct Google Photos Picker provider is therefore **not
-optional** — it is the primary path for Google, and it must ship in this feature rather than being
-deferred.
+The `google_photos` media source *is* a real album browser. It renders three levels -- accounts,
+albums, then media items -- and calls `list_albums()` with no filtering of its own.
+
+The limiter is the OAuth scope it requests:
+
+```python
+READ_SCOPE = "https://www.googleapis.com/auth/photoslibrary.readonly.appcreateddata"
+```
+
+`.appcreateddata` means Google returns only albums and media *that this app created*. So the
+browsing machinery is genuine and the restriction is applied on Google's side, to the response.
+That reconciles the code (which looks like a full browser) with the documentation ("does not give
+Home Assistant access to your entire Google Photos library"). Both are accurate.
+
+The root cause is upstream of Home Assistant: Google withdrew library-wide read access on
+2025-03-31, which is also what ended the `Daanoz/ha-google-photos` custom integration.
+
+**Decision, revised**: one generic `media_source` provider consumes *every* Home Assistant media
+source, `google_photos` included. Nothing Google-specific is built unless and until the generic
+path proves insufficient in practice, which costs one click to check.
+
+The Picker provider is **deferred, not cancelled**. It remains the only route to photos that exist
+solely in a user's Google library, but it is the escape hatch rather than the headline: it requires
+the owner to create a Google Cloud project, its selections freeze at pick time and expire, and it
+carries ongoing API risk. Building it speculatively would be reinventing a wheel for a case that
+may not arise.
 
 **Rationale**: The owner's core request is "the user selects an album or a series of photos" from
 their own Google Photos. Only a provider we write can do that today.
 
 **Consequence for the provider lineup**: the three initial providers become:
 
-1. `media_source` — generic Home Assistant media sources (local media, Immich, Nextcloud, DLNA,
-   and `google_photos`' upload folder). Cheap to build, proves the seam against real data, and is
-   the fallback for anyone unwilling to make a Google Cloud project.
-2. `google_photos_picker` — direct, our own OAuth + Picker API. The primary Google path.
+1. `media_source` — generic Home Assistant media sources. **This is the primary path.** It covers
+   local media, Nextcloud, DLNA, Samba, `google_photos`, and most importantly **Immich**, whose
+   media source groups assets by *albums, people and tags*. "Everything with these faces in it" is
+   a better photo-frame album than anything hand-curated, and it stays current on its own. One
+   provider, no per-source code, and a new media source in Home Assistant works here with no
+   change (FR-016, SC-013).
+2. `google_photos_picker` — direct OAuth + Picker API. **Deferred**: the escape hatch for photos
+   that live only in a Google library, built only if the generic path proves insufficient.
 3. `sample` — a built-in bundled photo set. Replaces the S3 stub as the seam-proving third
    provider: it is testable in CI with no credentials, and it doubles as the "frame has been
    adopted but not configured yet" content so the frame is never blank. S3 remains a documented

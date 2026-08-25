@@ -4,10 +4,17 @@ This is the general path: local media folders, Immich, Nextcloud, DLNA, Samba,
 and anything else that registers a media source. Home Assistant already knows
 how to browse and resolve those, so the provider is mostly translation.
 
-Note this is *not* how Google Photos works. Home Assistant's built-in
-google_photos integration exposes only what Home Assistant itself uploaded, not
-the user's library, so a Google album cannot be reached this way -- that needs
-the Picker-based provider (research.md R1).
+Google Photos works through here too, with a caveat worth knowing before you go
+looking for a missing album: Home Assistant's `google_photos` media source is a
+real album browser, but the integration requests the
+`photoslibrary.readonly.appcreateddata` scope, so Google returns only albums and
+media that Home Assistant itself created. Photos that live solely in a personal
+Google library are not reachable by any application since Google withdrew
+library-wide read access in March 2025.
+
+For a photo frame, Immich is the better source: its media source groups assets by
+albums, people and tags, so "everything with these faces in it" is a live album
+that maintains itself.
 """
 
 from __future__ import annotations
