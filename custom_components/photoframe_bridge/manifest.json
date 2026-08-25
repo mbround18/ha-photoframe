@@ -2,11 +2,15 @@
   "domain": "photoframe_bridge",
   "name": "PhotoFrame Bridge",
   "version": "0.2.0",
-  "documentation": "https://github.com/MBRound18/ha-photoframe",
-  "issue_tracker": "https://github.com/MBRound18/ha-photoframe/issues",
-  "codeowners": ["@MBRound18"],
+  "documentation": "https://github.com/mbround18/ha-photoframe",
+  "issue_tracker": "https://github.com/mbround18/ha-photoframe/issues",
+  "codeowners": [
+    "@mbround18"
+  ],
   "config_flow": false,
   "integration_type": "device",
   "iot_class": "local_push",
-  "requirements": ["websockets>=13,<14"]
+  "requirements": [
+    "websockets>=13,<14"
+  ]
 }
