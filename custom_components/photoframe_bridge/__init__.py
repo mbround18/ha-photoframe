@@ -19,6 +19,8 @@ from homeassistant.helpers.device_registry import DeviceInfo
 
 from .const import (
     CONF_COLLECTIONS,
+    DEFAULT_SOURCE,
+    FALLBACK_SOURCE,
     CONF_FRAME_ID,
     CONF_FRAME_TOKEN,
     CONF_SOURCE,
@@ -77,7 +79,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     frame_id = entry.data[CONF_FRAME_ID]
     runtime.tokens.register(frame_id, entry.data[CONF_FRAME_TOKEN])
 
-    provider_key = entry.options.get(CONF_SOURCE, "sample")
+    provider_key = entry.options.get(CONF_SOURCE, DEFAULT_SOURCE)
     providers = available_providers()
     provider_cls = providers.get(provider_key)
     if provider_cls is None:
@@ -87,8 +89,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             provider_key,
             frame_id,
         )
-        provider_cls = providers["sample"]
-        provider_key = "sample"
+        provider_cls = providers[FALLBACK_SOURCE]
+        provider_key = FALLBACK_SOURCE
 
     # Providers that browse Home Assistant need it; the rest ignore it.
     try:
@@ -123,6 +125,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         server=runtime.server,
     )
     await coordinator.async_start()
+
+    # A frame adopted before its source is configured, or pointed at an album
+    # that turns out to be empty, would otherwise sit blank. Show the bundled
+    # photos instead so it always looks like a working photo frame, and say so
+    # in the log rather than silently substituting.
+    if not coordinator.pool.items and provider_key != FALLBACK_SOURCE:
+        _LOGGER.info(
+            "photo source %r resolved to no photos for frame %s; showing the bundled "
+            "sample photos until an album is chosen",
+            provider_key,
+            frame_id,
+        )
+        coordinator.provider = providers[FALLBACK_SOURCE]()
+        coordinator.selection = Selection(
+            source_id=FALLBACK_SOURCE,
+            collection_ids=tuple(
+                c.collection_id for c in await coordinator.provider.async_list_collections()
+            ),
+        )
+        await coordinator.async_refresh_pool()
     runtime.coordinators[frame_id] = coordinator
 
     # Get a photo onto the frame as soon as it is reachable.

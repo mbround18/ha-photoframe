@@ -21,6 +21,16 @@ CONF_SOURCE: Final = "source"
 #: Which albums/folders within the source this frame shows.
 CONF_COLLECTIONS: Final = "collections"
 
+#: Default photo source. Home Assistant media sources cover local folders,
+#: Immich, Nextcloud, DLNA and google_photos through one code path, so a new
+#: frame starts there and the owner picks the album from Home Assistant's own
+#: browser rather than from anything we invented.
+DEFAULT_SOURCE: Final = "media_source"
+
+#: Shown when the chosen source resolves to nothing, so an adopted frame is
+#: never blank while its owner is still deciding (research.md R1).
+FALLBACK_SOURCE: Final = "sample"
+
 DEFAULT_ROTATION_INTERVAL: Final = 300
 DEFAULT_BRIGHTNESS: Final = 80
 DEFAULT_ORDER: Final = "shuffle"

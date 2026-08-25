@@ -23,6 +23,7 @@ from homeassistant.helpers import config_validation as cv
 
 from .const import (
     CONF_COLLECTIONS,
+    DEFAULT_SOURCE,
     CONF_BRIGHTNESS,
     CONF_FRAME_ID,
     CONF_FRAME_TOKEN,
@@ -104,7 +105,7 @@ class PhotoFrameConfigFlow(ConfigFlow, domain=DOMAIN):
                 CONF_FRAME_TOKEN: secrets.token_urlsafe(32),
             },
             options={
-                CONF_SOURCE: "sample",
+                CONF_SOURCE: DEFAULT_SOURCE,
                 CONF_ROTATION_INTERVAL: DEFAULT_ROTATION_INTERVAL,
                 CONF_BRIGHTNESS: DEFAULT_BRIGHTNESS,
                 CONF_TRANSITION: DEFAULT_TRANSITION,
@@ -140,7 +141,7 @@ class PhotoFrameOptionsFlow(OptionsFlow):
         schema = vol.Schema(
             {
                 vol.Required(
-                    CONF_SOURCE, default=options.get(CONF_SOURCE, "sample")
+                    CONF_SOURCE, default=options.get(CONF_SOURCE, DEFAULT_SOURCE)
                 ): vol.In(sorted(available_providers())),
                 vol.Required(
                     CONF_ROTATION_INTERVAL,
@@ -172,7 +173,7 @@ class PhotoFrameOptionsFlow(OptionsFlow):
             self._pending[CONF_COLLECTIONS] = user_input.get(CONF_COLLECTIONS, [])
             return self.async_create_entry(data=self._pending)
 
-        provider_key = self._pending.get(CONF_SOURCE, "sample")
+        provider_key = self._pending.get(CONF_SOURCE, DEFAULT_SOURCE)
         provider_cls = available_providers().get(provider_key)
         if provider_cls is None:
             return self.async_create_entry(data=self._pending)

@@ -17,9 +17,15 @@ from custom_components.photoframe_bridge.providers import available_providers
 COMPONENT = Path(__file__).resolve().parents[1] / "custom_components" / "photoframe_bridge"
 PROVIDERS_DIR = COMPONENT / "providers"
 
-# `__init__.py` legitimately imports the built-ins to populate the registry, and
-# the config flow needs a starting default before the owner has chosen a source.
-_ALLOWED_DEFAULT_MENTIONS = {"__init__.py", "config_flow.py"}
+# Three places may legitimately name a provider by key:
+#   const.py     - declares which source a new frame starts on, and which one
+#                  stands in when a source resolves to nothing. That is
+#                  configuration, not a branch on provider identity.
+#   __init__.py  - reads those constants during entry setup.
+#   config_flow.py - needs a default selection before the owner has chosen.
+# Everything else, and the delivery path in particular, must stay ignorant of
+# which provider it is talking to.
+_ALLOWED_DEFAULT_MENTIONS = {"const.py", "__init__.py", "config_flow.py"}
 
 
 def _modules_outside_providers() -> list[Path]:
@@ -72,13 +78,16 @@ def test_provider_keys_do_not_leak_into_the_coordinator_or_delivery_path() -> No
 
 def test_default_provider_mentions_are_confined_to_setup() -> None:
     """Only entry setup and the config flow may name the fallback source."""
+    keys = set(available_providers())
     violations: list[str] = []
     for path in _modules_outside_providers():
         if path.name in _ALLOWED_DEFAULT_MENTIONS:
             continue
-        if '"sample"' in path.read_text():
-            violations.append(str(path.relative_to(COMPONENT)))
+        text = path.read_text()
+        for key in keys:
+            if f'"{key}"' in text or f"'{key}'" in text:
+                violations.append(f"{path.relative_to(COMPONENT)} names {key!r}")
 
     assert not violations, (
-        "the bundled sample source is named outside setup: " + ", ".join(violations)
+        "a provider is named outside configuration and setup:\n" + "\n".join(violations)
     )

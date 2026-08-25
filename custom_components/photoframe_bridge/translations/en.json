@@ -26,11 +26,12 @@
           "rotation_interval_s": "Seconds between photos",
           "brightness": "Brightness (%)",
           "transition": "Transition"
-        }
+        },
+        "description": "Media sources cover Immich, local folders, Nextcloud and Google Photos through one path. Pick the source here, then choose the album on the next screen."
       },
       "collections": {
         "title": "Which photos?",
-        "description": "Choose the albums or folders this frame should show. New photos added to them will appear on their own.",
+        "description": "Choose the albums or folders this frame should show. These come straight from Home Assistant's media browser, so anything you have set up there - Immich, a local folder, Google Photos - appears in this list. New photos added to a chosen album show up on the frame on their own.",
         "data": {
           "collections": "Albums and folders"
         }
