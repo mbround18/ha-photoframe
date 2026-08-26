@@ -35,6 +35,16 @@
         "data": {
           "collections": "Albums and folders"
         }
+      },
+      "browse": {
+        "title": "Choose photos to show",
+        "description": "You are in: {location}\n\nPick a folder to open it, or choose “Show photos from this folder” to display it. You can choose more than one folder, and a folder includes everything inside it.\n\nCurrently showing: {chosen}",
+        "data": {
+          "choice": "Folder"
+        },
+        "data_description": {
+          "choice": "Open a folder, mark one to display, or finish."
+        }
       }
     },
     "abort": {

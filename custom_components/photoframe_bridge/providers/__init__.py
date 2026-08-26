@@ -30,6 +30,11 @@ class Capabilities:
     #: Selections have a deadline and eventually need re-picking.
     selection_expires: bool = False
     requires_auth: bool = False
+    #: Collections nest, and the owner should be walked down the tree rather
+    #: than handed a flat list. True for anything folder-shaped -- an S3 bucket
+    #: or a media folder can easily be three or four levels deep, and
+    #: flattening loses the albums that live at the bottom.
+    supports_hierarchical_browsing: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,6 +44,27 @@ class Collection:
     collection_id: str
     title: str
     item_count: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class BrowseLevel:
+    """One level of a nested source, as the owner walks down it.
+
+    Deliberately provider-agnostic: the config flow drives the walk and knows
+    nothing about media sources, buckets, or folders (Principle III).
+    """
+
+    #: Where we are. None means the top, above every collection.
+    identifier: str | None
+    #: What to call this level in the form, e.g. "S3 Media / taiwan".
+    title: str
+    #: Sub-collections that can be descended into.
+    children: tuple[Collection, ...] = field(default_factory=tuple)
+    #: Where "go back" leads. None at the top.
+    parent_identifier: str | None = None
+    #: Whether this level is itself a valid thing to display. False at the
+    #: root, where "everything" is rarely what anyone means.
+    can_select: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,6 +139,22 @@ class PhotoProvider(ABC):
     async def async_fetch_bytes(self, ref: PhotoRef, *, want: tuple[int, int]) -> bytes:
         """Return original bytes for one photo, at or above `want` if the
         source can size server-side."""
+
+    async def async_browse(self, identifier: str | None = None) -> BrowseLevel:
+        """Return one level of the source, for walking down a nested tree.
+
+        The default presents everything `async_list_collections` returns as a
+        single flat level, so a provider whose collections do not nest gets
+        sensible behaviour for free and only folder-shaped sources need to
+        override this.
+        """
+        return BrowseLevel(
+            identifier=None,
+            title="",
+            children=tuple(await self.async_list_collections()),
+            parent_identifier=None,
+            can_select=False,
+        )
 
 
 PROVIDERS: dict[str, type[PhotoProvider]] = {}

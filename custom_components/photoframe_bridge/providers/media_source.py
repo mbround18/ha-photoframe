@@ -30,6 +30,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.network import NoURLAvailableError, get_url
 
 from . import (
+    BrowseLevel,
     Capabilities,
     Collection,
     ItemUnavailable,
@@ -75,6 +76,31 @@ MAX_ITEMS = 20_000
 
 ROOT = "media-source://"
 
+#: Recognised by name when a media source does not classify its files. Kept in
+#: step with what the frame can actually decode.
+_PHOTO_SUFFIXES = (".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp")
+
+
+def _is_photo(child) -> bool:
+    """Whether a media-source item is a still image.
+
+    `media_class` is the right answer when a source sets it, but a source is
+    free not to -- a hand-rolled S3 media source may leave it unset or use
+    something generic -- and silently dropping every photo from such a source
+    is a miserable failure to diagnose. So fall back to the filename, while
+    still refusing anything explicitly classified as something other than an
+    image.
+    """
+    media_class = getattr(child, "media_class", None)
+    if media_class == MediaClass.IMAGE:
+        return True
+    if media_class in (MediaClass.VIDEO, MediaClass.MUSIC, MediaClass.PODCAST):
+        return False
+
+    name = (getattr(child, "media_content_id", "") or "").lower()
+    title = (getattr(child, "title", "") or "").lower()
+    return name.endswith(_PHOTO_SUFFIXES) or title.endswith(_PHOTO_SUFFIXES)
+
 
 @register_provider
 class MediaSourceProvider(PhotoProvider):
@@ -87,6 +113,10 @@ class MediaSourceProvider(PhotoProvider):
         supports_live_collections=True,
         selection_expires=False,
         requires_auth=False,
+        # Media sources nest arbitrarily deep -- an S3 bucket might hold
+        # media/taiwan/Taiwan 2026 -- so the owner walks down rather than
+        # picking from a flattened list that cannot reach the bottom.
+        supports_hierarchical_browsing=True,
     )
 
     def __init__(self, hass: HomeAssistant | None = None, source_id: str = "media_source") -> None:
@@ -144,6 +174,50 @@ class MediaSourceProvider(PhotoProvider):
 
         return collections
 
+    async def async_browse(self, identifier: str | None = None) -> BrowseLevel:
+        """One level of the media-source tree.
+
+        Walking one level at a time is what makes an album at any depth
+        reachable. `async_list_collections` stays as it was, flattening two
+        levels, because the coordinator and any provider-agnostic caller still
+        want a plain list.
+        """
+        target = identifier or ROOT
+        node = await self._browse(target)
+
+        children = tuple(
+            Collection(collection_id=child.media_content_id, title=child.title)
+            for child in (node.children or [])
+            if child.can_expand
+        )
+
+        at_root = target == ROOT
+        return BrowseLevel(
+            identifier=None if at_root else target,
+            title="" if at_root else node.title,
+            children=children,
+            parent_identifier=None if at_root else self._parent_of(target),
+            # The root is every media source at once, which is essentially
+            # never what someone means by "show me this album".
+            can_select=not at_root,
+        )
+
+    @staticmethod
+    def _parent_of(identifier: str) -> str | None:
+        """Where 'go back' leads, derived from the identifier's own path.
+
+        Media source identifiers are `media-source://<domain>/<path>`, so the
+        parent is the path with its last segment removed. Returning None means
+        the next step back is the root, which the flow handles.
+        """
+        if not identifier.startswith(ROOT):
+            return None
+        remainder = identifier[len(ROOT):].rstrip("/")
+        if "/" not in remainder:
+            return None
+        parent = remainder.rsplit("/", 1)[0]
+        return f"{ROOT}{parent}/" if parent else None
+
     async def async_list_items(self, selection: Selection) -> AsyncIterator[PhotoRef]:
         """Walk the selected folders, yielding images as they are found.
 
@@ -170,7 +244,7 @@ class MediaSourceProvider(PhotoProvider):
                 if child.can_expand:
                     pending.append(child.media_content_id)
                     continue
-                if child.media_class != MediaClass.IMAGE:
+                if not _is_photo(child):
                     continue  # video and audio never enter the pool (FR-018)
 
                 yielded += 1

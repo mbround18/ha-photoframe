@@ -118,11 +118,28 @@ class PhotoFrameConfigFlow(ConfigFlow, domain=DOMAIN):
         return PhotoFrameOptionsFlow()
 
 
+#: Sentinels for the browse dropdown. Prefixed so they cannot collide with a
+#: real collection identifier.
+CONF_CHOICE = "choice"
+_DONE = "\x00done"
+_UP = "\x00up"
+_SELECT = "\x00select:"
+_INTO = "\x00into:"
+
+
 class PhotoFrameOptionsFlow(OptionsFlow):
     """Presentation settings, photo source, and which albums to show."""
 
     def __init__(self) -> None:
         self._pending: dict[str, Any] = {}
+        #: Where the owner currently is in a nested source. None is the top.
+        self._browsing_at: str | None = None
+        #: Folders picked so far, in the order picked.
+        self._chosen: list[str] = []
+        #: Titles for those folders, so the form can name them back.
+        self._titles: dict[str, str] = {}
+        #: Where 'Back' leads from the level currently shown.
+        self._parent: str | None = None
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -131,6 +148,14 @@ class PhotoFrameOptionsFlow(OptionsFlow):
             # Choosing the source is only half the job: the owner still has to
             # say *which* albums. Carry the settings forward and ask.
             self._pending = dict(user_input)
+            provider = await self._async_provider()
+            if provider is not None and provider.capabilities.supports_hierarchical_browsing:
+                # Reset the walk each time settings are submitted, so re-opening
+                # options does not resume halfway down a tree.
+                self._browsing_at = None
+                self._chosen = list(self.config_entry.options.get(CONF_COLLECTIONS) or [])
+                self._titles = {}
+                return await self.async_step_browse()
             return await self.async_step_collections()
 
         # Provider choices come from the registry, so adding a provider makes it
@@ -158,6 +183,105 @@ class PhotoFrameOptionsFlow(OptionsFlow):
             }
         )
         return self.async_show_form(step_id="init", data_schema=schema)
+
+    async def _async_provider(self):
+        """The provider the owner picked, or None if it has gone away.
+
+        Providers that browse Home Assistant need the `hass` object; the rest
+        take no arguments. Deciding that here keeps every provider ignorant of
+        config flows (Principle III).
+        """
+        from .providers import available_providers
+
+        provider_cls = available_providers().get(
+            self._pending.get(CONF_SOURCE, DEFAULT_SOURCE)
+        )
+        if provider_cls is None:
+            return None
+        try:
+            return provider_cls(self.hass)  # type: ignore[call-arg]
+        except TypeError:
+            return provider_cls()
+
+    async def async_step_browse(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Walk down a nested source one level at a time.
+
+        Flattening cannot reach an album at `media / taiwan / Taiwan 2026`, so
+        the owner descends folder by folder and marks the ones to show. Any
+        number can be picked, and picking a folder includes everything beneath
+        it.
+        """
+        from .providers import ProviderError
+
+        provider = await self._async_provider()
+        if provider is None:
+            return self.async_create_entry(data=self._pending)
+
+        if user_input is not None:
+            choice = user_input[CONF_CHOICE]
+            if choice == _DONE:
+                self._pending[CONF_COLLECTIONS] = list(self._chosen)
+                return self.async_create_entry(data=self._pending)
+            if choice == _UP:
+                self._browsing_at = self._parent
+                return await self.async_step_browse()
+            if choice.startswith(_SELECT):
+                target = choice[len(_SELECT):]
+                # Selecting twice unselects: the dropdown is the only control
+                # here, so it has to be able to undo itself.
+                if target in self._chosen:
+                    self._chosen.remove(target)
+                else:
+                    self._chosen.append(target)
+                return await self.async_step_browse()
+            self._browsing_at = choice[len(_INTO):]
+            return await self.async_step_browse()
+
+        try:
+            level = await provider.async_browse(self._browsing_at)
+        except ProviderError as err:
+            return self.async_abort(
+                reason="source_unavailable",
+                description_placeholders={"error": str(err)},
+            )
+
+        self._parent = level.parent_identifier
+        for child in level.children:
+            self._titles[child.collection_id] = child.title
+
+        options: dict[str, str] = {}
+        if level.can_select and level.identifier:
+            picked = level.identifier in self._chosen
+            verb = "Remove" if picked else "Show photos from"
+            options[f"{_SELECT}{level.identifier}"] = (
+                f"{'\u2713' if picked else '\u2795'} {verb} this folder"
+                f" ({level.title}), including everything inside it"
+            )
+        if self._browsing_at is not None:
+            options[_UP] = "\u2b05 Back"
+        for child in level.children:
+            ticked = "\u2713 " if child.collection_id in self._chosen else ""
+            options[f"{_INTO}{child.collection_id}"] = f"{ticked}\U0001f4c1 {child.title}"
+
+        if self._chosen:
+            names = ", ".join(self._titles.get(c, c) for c in self._chosen)
+            options[_DONE] = f"\u2714 Done \u2014 show {len(self._chosen)} folder(s): {names}"
+        elif not level.children:
+            # Nothing here and nothing picked: let them out rather than
+            # stranding them in a form with only a Back button.
+            options[_DONE] = "\u2714 Done \u2014 show everything in this source"
+
+        here = level.title or "All photo sources"
+        return self.async_show_form(
+            step_id="browse",
+            data_schema=vol.Schema({vol.Required(CONF_CHOICE): vol.In(options)}),
+            description_placeholders={
+                "location": here,
+                "chosen": ", ".join(self._titles.get(c, c) for c in self._chosen) or "nothing yet",
+            },
+        )
 
     async def async_step_collections(
         self, user_input: dict[str, Any] | None = None

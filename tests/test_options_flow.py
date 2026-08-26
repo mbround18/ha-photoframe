@@ -75,12 +75,27 @@ async def test_the_form_opens_whatever_an_older_build_left_behind(hass, stored: 
 
 @pytest.mark.asyncio
 async def test_submitting_settings_leads_to_the_album_picker(hass) -> None:
+    """media_source nests, so it goes to the walkable browser.
+
+    See test_options_browse.py for the walk itself.
+    """
     result = await hass.config_entries.options.async_init(_entry(hass).entry_id)
     result = await hass.config_entries.options.async_configure(
         result["flow_id"], _SETTINGS
     )
 
     assert result["type"] == "form"
+    assert result["step_id"] == "browse"
+
+
+@pytest.mark.asyncio
+async def test_a_flat_source_still_gets_the_simple_picker(hass) -> None:
+    """Providers whose collections do not nest are unaffected by the browser."""
+    result = await hass.config_entries.options.async_init(_entry(hass).entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {**_SETTINGS, "source": "sample"}
+    )
+
     assert result["step_id"] == "collections"
 
 
