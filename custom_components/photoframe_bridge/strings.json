@@ -36,14 +36,18 @@
           "collections": "Albums and folders"
         }
       },
-      "browse": {
-        "title": "Choose photos to show",
-        "description": "You are in: {location}\n\nPick a folder to open it, or choose “Show photos from this folder” to display it. You can choose more than one folder, and a folder includes everything inside it.\n\nCurrently showing: {chosen}",
+      "source": {
+        "title": "Where are your photos?",
+        "description": "Choose which photo source to take folders from.",
         "data": {
-          "choice": "Folder"
-        },
-        "data_description": {
-          "choice": "Open a folder, mark one to display, or finish."
+          "source_root": "Photo source"
+        }
+      },
+      "folders": {
+        "title": "Choose folders to show",
+        "description": "Tick the folders this frame should show. Ticking a folder includes everything inside it, so you do not need to tick the folders underneath it as well.\n\nNothing is ticked to begin with.",
+        "data": {
+          "collections": "Folders"
         }
       }
     },

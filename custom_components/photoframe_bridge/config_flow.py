@@ -7,6 +7,8 @@ connects to the control channel.
 
 from __future__ import annotations
 
+import logging
+
 import secrets
 from typing import Any
 
@@ -118,14 +120,29 @@ class PhotoFrameConfigFlow(ConfigFlow, domain=DOMAIN):
         return PhotoFrameOptionsFlow()
 
 
-#: Sentinels for the browse dropdown. Prefixed so they cannot collide with a
-#: real collection identifier.
-CONF_CHOICE = "choice"
-_DONE = "\x00done"
-_UP = "\x00up"
-_SELECT = "\x00select:"
-_INTO = "\x00into:"
-_CLEAR = "\x00clear"
+_LOGGER = logging.getLogger(__name__)
+
+CONF_SOURCE_ROOT = "source_root"
+
+#: How far below the chosen source to look for folders, and how many to offer.
+#: A form is not a file manager; these keep the list honest and the wait short.
+_MAX_TREE_DEPTH = 3
+_MAX_TREE_FOLDERS = 300
+
+
+def _drop_redundant_children(chosen: list[str]) -> list[str]:
+    """Keep only the outermost of any nested pair.
+
+    Ticking a folder already includes everything inside it, so keeping a child
+    alongside its parent would put the same photos in the pool twice.
+    """
+    return [
+        candidate
+        for candidate in chosen
+        if not any(
+            other != candidate and candidate.startswith(other) for other in chosen
+        )
+    ]
 
 
 class PhotoFrameOptionsFlow(OptionsFlow):
@@ -133,14 +150,8 @@ class PhotoFrameOptionsFlow(OptionsFlow):
 
     def __init__(self) -> None:
         self._pending: dict[str, Any] = {}
-        #: Where the owner currently is in a nested source. None is the top.
-        self._browsing_at: str | None = None
-        #: Folders picked so far, in the order picked.
-        self._chosen: list[str] = []
-        #: Titles for those folders, so the form can name them back.
-        self._titles: dict[str, str] = {}
-        #: Where 'Back' leads from the level currently shown.
-        self._parent: str | None = None
+        #: The source folders are being taken from, e.g. an S3 bucket.
+        self._source_root: str | None = None
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -153,10 +164,7 @@ class PhotoFrameOptionsFlow(OptionsFlow):
             if provider is not None and provider.capabilities.supports_hierarchical_browsing:
                 # Reset the walk each time settings are submitted, so re-opening
                 # options does not resume halfway down a tree.
-                self._browsing_at = None
-                self._chosen = list(self.config_entry.options.get(CONF_COLLECTIONS) or [])
-                self._titles = {}
-                return await self.async_step_browse()
+                return await self.async_step_source()
             return await self.async_step_collections()
 
         # Provider choices come from the registry, so adding a provider makes it
@@ -204,15 +212,15 @@ class PhotoFrameOptionsFlow(OptionsFlow):
         except TypeError:
             return provider_cls()
 
-    async def async_step_browse(
+    async def async_step_source(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Walk down a nested source one level at a time.
+        """Pick which photo source to take folders from.
 
-        Flattening cannot reach an album at `media / taiwan / Taiwan 2026`, so
-        the owner descends folder by folder and marks the ones to show. Any
-        number can be picked, and picking a folder includes everything beneath
-        it.
+        Sources are chosen before folders because a media source is a place,
+        not a collection: nobody means "everything on the NAS and everything in
+        the bucket". Narrowing first also keeps the folder list to something a
+        dropdown can honestly present.
         """
         from .providers import ProviderError
 
@@ -221,75 +229,127 @@ class PhotoFrameOptionsFlow(OptionsFlow):
             return self.async_create_entry(data=self._pending)
 
         if user_input is not None:
-            choice = user_input[CONF_CHOICE]
-            if choice == _DONE:
-                self._pending[CONF_COLLECTIONS] = list(self._chosen)
-                return self.async_create_entry(data=self._pending)
-            if choice == _CLEAR:
-                # Un-picking one folder at a time means walking back to each of
-                # them, which is unreasonable once a few are chosen or once the
-                # owner has forgotten where they were.
-                self._chosen = []
-                return await self.async_step_browse()
-            if choice == _UP:
-                self._browsing_at = self._parent
-                return await self.async_step_browse()
-            if choice.startswith(_SELECT):
-                target = choice[len(_SELECT):]
-                # Selecting twice unselects: the dropdown is the only control
-                # here, so it has to be able to undo itself.
-                if target in self._chosen:
-                    self._chosen.remove(target)
-                else:
-                    self._chosen.append(target)
-                return await self.async_step_browse()
-            self._browsing_at = choice[len(_INTO):]
-            return await self.async_step_browse()
+            self._source_root = user_input[CONF_SOURCE_ROOT]
+            return await self.async_step_folders()
 
         try:
-            level = await provider.async_browse(self._browsing_at)
+            top = await provider.async_browse(None)
         except ProviderError as err:
             return self.async_abort(
                 reason="source_unavailable",
                 description_placeholders={"error": str(err)},
             )
 
-        self._parent = level.parent_identifier
-        for child in level.children:
-            self._titles[child.collection_id] = child.title
+        if not top.children:
+            # Nothing to narrow to; let the source speak for itself.
+            self._source_root = None
+            return await self.async_step_folders()
 
-        options: dict[str, str] = {}
-        if level.can_select and level.identifier:
-            picked = level.identifier in self._chosen
-            verb = "Remove" if picked else "Show photos from"
-            options[f"{_SELECT}{level.identifier}"] = (
-                f"{'\u2713' if picked else '\u2795'} {verb} this folder"
-                f" ({level.title}), including everything inside it"
-            )
-        if self._browsing_at is not None:
-            options[_UP] = "\u2b05 Back"
-        for child in level.children:
-            ticked = "\u2713 " if child.collection_id in self._chosen else ""
-            options[f"{_INTO}{child.collection_id}"] = f"{ticked}\U0001f4c1 {child.title}"
+        if len(top.children) == 1:
+            # One source is not a choice. Skip the click.
+            self._source_root = top.children[0].collection_id
+            return await self.async_step_folders()
 
-        if self._chosen:
-            names = ", ".join(self._titles.get(c, c) for c in self._chosen)
-            options[_DONE] = f"\u2714 Done \u2014 show {len(self._chosen)} folder(s): {names}"
-            options[_CLEAR] = f"\u2716 Clear all {len(self._chosen)} selection(s) and start again"
-        elif not level.children:
-            # Nothing here and nothing picked: let them out rather than
-            # stranding them in a form with only a Back button.
-            options[_DONE] = "\u2714 Done \u2014 show everything in this source"
+        choices = {c.collection_id: c.title for c in top.children}
+        default = self._source_root if self._source_root in choices else None
 
-        here = level.title or "All photo sources"
         return self.async_show_form(
-            step_id="browse",
-            data_schema=vol.Schema({vol.Required(CONF_CHOICE): vol.In(options)}),
-            description_placeholders={
-                "location": here,
-                "chosen": ", ".join(self._titles.get(c, c) for c in self._chosen) or "nothing yet",
-            },
+            step_id="source",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_SOURCE_ROOT, **({"default": default} if default else {})
+                    ): vol.In(choices)
+                }
+            ),
         )
+
+    async def async_step_folders(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Tick the folders to show, as one indented list.
+
+        Everything below the chosen source, to a bounded depth, presented at
+        once. Ticking a folder includes everything inside it, so a whole trip
+        is one tick rather than one per year-folder underneath it.
+
+        Nothing is ticked by default. A frame that quietly showed an entire
+        bucket because the owner had not yet chosen would be showing wallpaper,
+        screenshots and whatever else lives there.
+        """
+        from .providers import ProviderError
+
+        provider = await self._async_provider()
+        if provider is None:
+            return self.async_create_entry(data=self._pending)
+
+        if user_input is not None:
+            chosen = list(user_input.get(CONF_COLLECTIONS) or [])
+            # Ticking a parent already includes its children, so keeping both
+            # would list the same photos twice in the pool.
+            self._pending[CONF_COLLECTIONS] = _drop_redundant_children(chosen)
+            return self.async_create_entry(data=self._pending)
+
+        try:
+            tree = await self._async_collect_tree(provider, self._source_root)
+        except ProviderError as err:
+            return self.async_abort(
+                reason="source_unavailable",
+                description_placeholders={"error": str(err)},
+            )
+
+        if not tree:
+            # No folders at all: offer the source itself rather than an empty
+            # form, so a flat bucket is still usable.
+            if self._source_root:
+                self._pending[CONF_COLLECTIONS] = [self._source_root]
+            return self.async_create_entry(data=self._pending)
+
+        choices = {
+            collection.collection_id: f"{'\u00a0' * 4 * depth}{'\u21b3 ' if depth else ''}{collection.title}"
+            for depth, collection in tree
+        }
+        previous = [c for c in (self.config_entry.options.get(CONF_COLLECTIONS) or []) if c in choices]
+
+        return self.async_show_form(
+            step_id="folders",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_COLLECTIONS, default=previous): cv.multi_select(
+                        choices
+                    )
+                }
+            ),
+            description_placeholders={"count": str(len(choices))},
+        )
+
+    async def _async_collect_tree(
+        self, provider, root: str | None
+    ) -> list[tuple[int, Any]]:
+        """Flatten the folders under `root` into an indented list.
+
+        Depth- and size-bounded on purpose. A form is not a file manager, and
+        an unbounded walk of a large bucket would take long enough that the
+        owner would assume it had hung.
+        """
+        collected: list[tuple[int, Any]] = []
+
+        async def walk(identifier: str | None, depth: int) -> None:
+            if depth > _MAX_TREE_DEPTH or len(collected) >= _MAX_TREE_FOLDERS:
+                return
+            level = await provider.async_browse(identifier)
+            for child in level.children:
+                if len(collected) >= _MAX_TREE_FOLDERS:
+                    _LOGGER.debug(
+                        "stopping folder listing at %d entries", _MAX_TREE_FOLDERS
+                    )
+                    return
+                collected.append((depth, child))
+                await walk(child.collection_id, depth + 1)
+
+        await walk(root, 0)
+        return collected
+
 
     async def async_step_collections(
         self, user_input: dict[str, Any] | None = None
