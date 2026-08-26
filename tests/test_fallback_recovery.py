@@ -53,6 +53,8 @@ def _coordinator(provider: _FlakySource) -> FrameCoordinator:
     coordinator.last_error = None
     coordinator.using_fallback = False
     coordinator._providers = {provider.key: provider}
+    coordinator._pool_refreshed_at = None
+    coordinator._failed_refreshes = 0
 
     from custom_components.photoframe_bridge.coordinator import PhotoPool
 
@@ -95,3 +97,68 @@ async def test_a_photo_is_fetched_from_whoever_produced_it() -> None:
     sample_ref = coordinator.pool.items[0]
     assert coordinator._provider_for(sample_ref).key == "sample"
     assert coordinator._provider_for(PhotoRef(item_id="x", source_id="flaky")) is provider
+
+
+@pytest.mark.asyncio
+async def test_a_failing_source_is_retried_less_and_less_often() -> None:
+    """Rebuilding walks the whole source.
+
+    On a five-thousand-photo bucket that is thousands of requests, so a source
+    that is simply not there -- an integration that failed to load, say --
+    must not be walked on every rotation forever.
+    """
+    from datetime import timedelta
+
+    from homeassistant.util import dt as dt_util
+
+    from custom_components.photoframe_bridge.coordinator import (
+        FALLBACK_RETRY_BASE_SECONDS,
+        POOL_REFRESH_SECONDS,
+    )
+
+    coordinator = _coordinator(_FlakySource())
+
+    # Never refreshed yet: do it now.
+    assert coordinator._should_refresh_pool() is True
+
+    await coordinator.async_refresh_pool()
+    assert coordinator.using_fallback is True
+
+    # Just failed once: not immediately again.
+    assert coordinator._should_refresh_pool() is False
+
+    # After the first backoff, yes.
+    coordinator._pool_refreshed_at = dt_util.utcnow() - timedelta(
+        seconds=FALLBACK_RETRY_BASE_SECONDS * 2 + 1
+    )
+    assert coordinator._should_refresh_pool() is True
+
+    # And the wait grows with each failure rather than staying put.
+    coordinator._failed_refreshes = 6
+    coordinator._pool_refreshed_at = dt_util.utcnow() - timedelta(
+        seconds=FALLBACK_RETRY_BASE_SECONDS * 2 + 1
+    )
+    assert coordinator._should_refresh_pool() is False
+
+
+@pytest.mark.asyncio
+async def test_a_working_source_is_re_read_only_occasionally() -> None:
+    """New photos within the hour is soon enough for a picture frame."""
+    from datetime import timedelta
+
+    from homeassistant.util import dt as dt_util
+
+    from custom_components.photoframe_bridge.coordinator import POOL_REFRESH_SECONDS
+
+    provider = _FlakySource()
+    provider.ready = True
+    coordinator = _coordinator(provider)
+    await coordinator.async_refresh_pool()
+
+    assert coordinator.using_fallback is False
+    assert coordinator._should_refresh_pool() is False
+
+    coordinator._pool_refreshed_at = dt_util.utcnow() - timedelta(
+        seconds=POOL_REFRESH_SECONDS + 1
+    )
+    assert coordinator._should_refresh_pool() is True

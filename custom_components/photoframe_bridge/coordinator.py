@@ -52,6 +52,21 @@ FRAME_BUFFER_TARGET = 3
 #: ask again anyway.
 MAX_PHOTOS_PER_REQUEST = 8
 
+#: How often a working photo source is re-read, to pick up photos added since.
+#:
+#: Rebuilding walks the whole source, which on a large bucket is thousands of
+#: requests, so this is deliberately slow. New photos appearing within the hour
+#: is soon enough for a picture frame.
+POOL_REFRESH_SECONDS = 3600
+
+#: How soon to retry a source that returned nothing, and the ceiling on that.
+#:
+#: Doubling each time: a source that is briefly late is picked up almost at
+#: once, and one that is genuinely gone -- an integration that failed to load,
+#: say -- is not walked every five minutes forever.
+FALLBACK_RETRY_BASE_SECONDS = 60
+FALLBACK_RETRY_MAX_SECONDS = 1800
+
 
 @dataclass(slots=True)
 class PhotoPool:
@@ -119,6 +134,16 @@ class FrameCoordinator:
         #: Whether the pool currently holds the bundled photos rather than the
         #: owner's. Temporary by design -- see `async_refresh_pool`.
         self.using_fallback = False
+        #: When the pool was last rebuilt, so a large source is not walked on
+        #: every rotation.
+        self._pool_refreshed_at = None
+        #: Consecutive failures, for backing off a source that is not there.
+        self._failed_refreshes = 0
+        #: When the pool was last rebuilt, so a large source is not walked on
+        #: every rotation.
+        self._pool_refreshed_at = None
+        #: Consecutive failures, for backing off a source that is not there.
+        self._failed_refreshes = 0
         #: Providers by source id, so a photo is always fetched by whoever
         #: produced it even while a fallback is standing in.
         self._providers = {provider.key: provider}
@@ -143,10 +168,35 @@ class FrameCoordinator:
         )
 
     async def _on_tick(self, _now) -> None:
-        if self.using_fallback:
-            # Cheap, and the only thing that makes the fallback temporary.
+        if self._should_refresh_pool():
             await self.async_refresh_pool()
         await self.async_show_next()
+
+    def _should_refresh_pool(self) -> bool:
+        """Whether it is worth rebuilding the pool this tick.
+
+        Rebuilding walks the whole source. On a five-thousand-photo bucket that
+        is thousands of requests, so doing it every rotation -- which is what
+        retrying a fallback used to mean -- is far too eager for something that
+        usually fails for the same reason it failed last time.
+
+        A source that is working is re-read occasionally, to pick up photos
+        added since (FR-014). One that is not is retried with a backoff, so a
+        source that is genuinely gone costs almost nothing.
+        """
+        now = dt_util.utcnow()
+        if self._pool_refreshed_at is None:
+            return True
+
+        elapsed = (now - self._pool_refreshed_at).total_seconds()
+        if not self.using_fallback:
+            return elapsed >= POOL_REFRESH_SECONDS
+
+        backoff = min(
+            FALLBACK_RETRY_MAX_SECONDS,
+            FALLBACK_RETRY_BASE_SECONDS * (2 ** min(self._failed_refreshes, 8)),
+        )
+        return elapsed >= backoff
 
     # -- pool -------------------------------------------------------------
 
@@ -192,10 +242,15 @@ class FrameCoordinator:
         except SourceUnavailable as err:
             # The frame is unaffected: it keeps showing what it holds (FR-026).
             self.last_error = str(err)
+            self._pool_refreshed_at = dt_util.utcnow()
+            self._failed_refreshes += 1
             _LOGGER.warning("photo source unavailable for %s: %s", self.frame_id, err)
             return
 
+        self._pool_refreshed_at = dt_util.utcnow()
+
         if items:
+            self._failed_refreshes = 0
             if self.using_fallback:
                 _LOGGER.info(
                     "frame %s: %r is providing photos again; the bundled photos "
@@ -219,6 +274,7 @@ class FrameCoordinator:
             self.pool.items = []
             return
 
+        self._failed_refreshes += 1
         fallback = await self._async_fallback_provider()
         stand_in = [
             ref
