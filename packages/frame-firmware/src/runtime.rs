@@ -94,7 +94,17 @@ pub struct ThinClientRuntime {
 const CONTROL_PLANE_STACK_BYTES: usize = 16 * 1024;
 
 /// Stack for the render thread, which additionally decodes a JPEG.
-const RENDER_CONTROLLER_STACK_BYTES: usize = 32 * 1024;
+///
+/// 32 KB was not enough. A perfectly ordinary photo -- a 23 KB baseline JPEG
+/// prepared by Home Assistant -- overflowed it mid-decode and faulted with a
+/// stack protection error, rebooting the frame. The frame then reconnected,
+/// was sent the same photo, and crashed again: a boot loop that looked from
+/// Home Assistant like a frame refusing to hold a connection.
+///
+/// These stacks live in PSRAM, of which this board has 32 MB, so buying a wide
+/// margin here costs nothing worth counting and removes a whole class of
+/// crash that only appears on photos of the wrong shape or size.
+const RENDER_CONTROLLER_STACK_BYTES: usize = 192 * 1024;
 
 /// Put these stacks in PSRAM.
 ///
@@ -105,6 +115,41 @@ const RENDER_CONTROLLER_STACK_BYTES: usize = 32 * 1024;
 /// `CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM` are enabled, so external stacks
 /// are supported; neither thread takes an interrupt, which is the case that
 /// would rule PSRAM out.
+/// Spawn a background thread with a stack big enough for what it does.
+///
+/// ESP-IDF gives pthreads 3 KB by default, which is not enough for anything
+/// that decodes an image and is barely enough for anything that formats a
+/// string. `std::thread::spawn` takes that default silently and the result is
+/// a stack protection fault at some unpredictable later moment, so background
+/// work goes through here rather than through `spawn` directly.
+#[cfg(target_os = "espidf")]
+pub fn spawn_with_psram_stack<F>(name: &'static core::ffi::CStr, stack_size: usize, body: F)
+where
+    F: FnOnce() + Send + 'static,
+{
+    configure_thread_stacks_in_psram(stack_size, name);
+    let spawned = std::thread::Builder::new()
+        .stack_size(stack_size)
+        .spawn(body);
+    if let Err(error) = spawned {
+        tracing::error!(
+            target: "frame_firmware",
+            "could not start {}: {error}",
+            name.to_string_lossy()
+        );
+    }
+}
+
+#[cfg(not(target_os = "espidf"))]
+pub fn spawn_with_psram_stack<F>(_name: &'static core::ffi::CStr, stack_size: usize, body: F)
+where
+    F: FnOnce() + Send + 'static,
+{
+    let _ = std::thread::Builder::new()
+        .stack_size(stack_size)
+        .spawn(body);
+}
+
 #[cfg(target_os = "espidf")]
 fn configure_thread_stacks_in_psram(stack_size: usize, name: &'static core::ffi::CStr) {
     use enumset::enum_set;

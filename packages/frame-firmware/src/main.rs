@@ -349,7 +349,12 @@ fn run() -> anyhow::Result<()> {
     runtime::set_local_photos_active(local_photos_active);
     if local_photos_active {
         let library = local_library.clone();
-        std::thread::spawn(move || frame_ui::local_photos::run_local_slideshow(library));
+        // Decodes and scales full-size photos from the card, so it needs the
+        // same headroom as the render thread rather than the 3 KB a plain
+        // `std::thread::spawn` would give it.
+        runtime::spawn_with_psram_stack(c"frame-local-photos", 192 * 1024, move || {
+            frame_ui::local_photos::run_local_slideshow(library)
+        });
     } else if local_library.skipped() > 0 {
         tracing::warn!(
             target: "frame_firmware",
@@ -443,7 +448,7 @@ fn run() -> anyhow::Result<()> {
         } else {
             "Home Assistant".to_string()
         };
-        std::thread::spawn(move || {
+        runtime::spawn_with_psram_stack(c"frame-health", 16 * 1024, move || {
             loop {
                 // A snapshot failure means the store lock is poisoned, which
                 // says nothing about the card; report what we do know.
