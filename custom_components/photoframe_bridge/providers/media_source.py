@@ -242,7 +242,9 @@ class MediaSourceProvider(PhotoProvider):
             try:
                 node = await self._browse(identifier)
             except SourceUnavailable as err:
-                _LOGGER.debug("skipping %s: %s", identifier, err)
+                # Warning, not debug: if this is the album the owner picked,
+                # this line is the entire explanation for an empty frame.
+                _LOGGER.warning("could not read %s, skipping it: %s", identifier, err)
                 continue
 
             for child in node.children or []:

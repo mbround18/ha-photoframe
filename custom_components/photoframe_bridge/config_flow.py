@@ -125,6 +125,7 @@ _DONE = "\x00done"
 _UP = "\x00up"
 _SELECT = "\x00select:"
 _INTO = "\x00into:"
+_CLEAR = "\x00clear"
 
 
 class PhotoFrameOptionsFlow(OptionsFlow):
@@ -224,6 +225,12 @@ class PhotoFrameOptionsFlow(OptionsFlow):
             if choice == _DONE:
                 self._pending[CONF_COLLECTIONS] = list(self._chosen)
                 return self.async_create_entry(data=self._pending)
+            if choice == _CLEAR:
+                # Un-picking one folder at a time means walking back to each of
+                # them, which is unreasonable once a few are chosen or once the
+                # owner has forgotten where they were.
+                self._chosen = []
+                return await self.async_step_browse()
             if choice == _UP:
                 self._browsing_at = self._parent
                 return await self.async_step_browse()
@@ -268,6 +275,7 @@ class PhotoFrameOptionsFlow(OptionsFlow):
         if self._chosen:
             names = ", ".join(self._titles.get(c, c) for c in self._chosen)
             options[_DONE] = f"\u2714 Done \u2014 show {len(self._chosen)} folder(s): {names}"
+            options[_CLEAR] = f"\u2716 Clear all {len(self._chosen)} selection(s) and start again"
         elif not level.children:
             # Nothing here and nothing picked: let them out rather than
             # stranding them in a form with only a Back button.

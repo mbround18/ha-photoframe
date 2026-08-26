@@ -185,3 +185,53 @@ async def test_picking_a_folder_twice_unpicks_it(hass) -> None:
         )
 
     assert result["description_placeholders"]["chosen"] == "nothing yet"
+
+
+@pytest.mark.asyncio
+async def test_selections_can_be_cleared_without_walking_back_to_each_one(hass) -> None:
+    """Un-picking folders one at a time means finding each of them again.
+
+    That is unreasonable once a few are chosen, or once the owner has
+    forgotten which ones they were -- which is the usual reason for wanting to
+    start over.
+    """
+    result = await hass.config_entries.options.async_init(_entry(hass).entry_id)
+
+    with patch(_BROWSE, side_effect=_fake_browse):
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], _SETTINGS
+        )
+        # Pick two folders at different depths.
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {"choice": _value_containing(result, "S3 Media")}
+        )
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {"choice": _value_containing(result, "Show photos from")}
+        )
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {"choice": _value_containing(result, "taiwan")}
+        )
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {"choice": _value_containing(result, "Show photos from")}
+        )
+        assert "S3 Media" in result["description_placeholders"]["chosen"]
+
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {"choice": _value_containing(result, "Clear all")}
+        )
+
+    assert result["description_placeholders"]["chosen"] == "nothing yet"
+    # And the way out is still offered, rather than stranding them.
+    assert any("Back" in label for label in _labels(result).values())
+
+
+@pytest.mark.asyncio
+async def test_clearing_is_not_offered_when_nothing_is_chosen(hass) -> None:
+    result = await hass.config_entries.options.async_init(_entry(hass).entry_id)
+
+    with patch(_BROWSE, side_effect=_fake_browse):
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], _SETTINGS
+        )
+
+    assert not any("Clear all" in label for label in _labels(result).values())
