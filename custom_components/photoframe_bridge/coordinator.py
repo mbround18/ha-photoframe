@@ -177,17 +177,24 @@ class FrameCoordinator:
                 ref, want=(geometry[0] * 2, geometry[1] * 2)
             )
         except (ItemUnavailable, ItemUnsupported) as err:
+            # Recorded as well as logged: one photo failing is unremarkable, but
+            # if every photo fails this is the only account of why, and it is
+            # what the summary warning reports.
+            self.last_error = f"fetching {ref.item_id} failed: {err}"
             _LOGGER.debug("skipping %s: %s", ref.item_id, err)
             return None
         except SourceUnavailable as err:
-            self.last_error = str(err)
+            self.last_error = f"source unavailable fetching {ref.item_id}: {err}"
+            _LOGGER.debug("skipping %s: %s", ref.item_id, err)
             return None
 
         try:
             prepared = await self.hass.async_add_executor_job(prepare_image, raw, geometry)
         except UnsupportedImageError as err:
-            # Silently skip: the owner never sees a decode error on the panel
-            # (FR-029, Principle VIII).
+            # Never shown on the panel (FR-029, Principle VIII), but it must be
+            # discoverable somewhere or a source of, say, HEIC files looks
+            # identical to a source that is simply empty.
+            self.last_error = f"preparing {ref.item_id} failed: {err}"
             _LOGGER.debug("could not prepare %s: %s", ref.item_id, err)
             return None
 
@@ -238,13 +245,27 @@ class FrameCoordinator:
             return False
 
         # Bounded so a pool of entirely broken photos cannot spin forever.
-        for _ in range(min(len(self.pool.items), 10)):
+        attempts = min(len(self.pool.items), 10)
+        for _ in range(attempts):
             ref = self.pool.advance()
             if ref is None:
                 return False
             if await self.async_show(ref):
                 return True
-        _LOGGER.warning("frame %s: no displayable photo found in this pass", self.frame_id)
+
+        # Say why. Without the reason this warning is unactionable: a source
+        # whose photos cannot be fetched looks exactly like one whose photos
+        # cannot be decoded, or a frame that has gone offline mid-pass.
+        connected = bool(self.server.session(self.frame_id))
+        _LOGGER.warning(
+            "frame %s: none of the %d photo(s) tried could be shown (pool holds %d). "
+            "Last failure: %s%s",
+            self.frame_id,
+            attempts,
+            len(self.pool.items),
+            self.last_error or "none recorded",
+            "" if connected else " (the frame is not currently connected)",
+        )
         return False
 
     async def async_show_previous(self) -> bool:
