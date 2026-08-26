@@ -184,8 +184,11 @@ class FrameControlView(HomeAssistantView):
     # their first message; see the note in http_view.py.
     requires_auth = False
 
-    def __init__(self, server: ControlServer) -> None:
+    def __init__(self, server: ControlServer, tokens=None) -> None:
         self._server = server
+        # Optional so existing callers and tests keep working; without it the
+        # frame is still claimed, just not told its token.
+        self._tokens = tokens
 
     async def get(self, request: web.Request) -> web.WebSocketResponse:
         socket = web.WebSocketResponse(heartbeat=30)
@@ -215,6 +218,7 @@ class FrameControlView(HomeAssistantView):
                     _LOGGER.info(
                         "frame %s connected (%s)", session.frame_id, session.device_name
                     )
+                    await self._async_claim(session)
 
                 self._server.handle_status(session.frame_id, payload)
         finally:
@@ -223,6 +227,35 @@ class FrameControlView(HomeAssistantView):
                 self._server.unregister(session.frame_id)
 
         return socket
+
+    async def _async_claim(self, session: FrameSession) -> None:
+        """Tell the frame it is ours, and give it the token photos need.
+
+        Sent on every connection rather than only the first: the token lives in
+        the frame's memory, so a reboot or a reconnect has to be told again.
+        Without this the frame connects happily and then gets 401 on every
+        photo, which looks like a frame that is working and simply never shows
+        anything.
+        """
+        token = self._tokens.token_for(session.frame_id) if self._tokens else None
+        if token is None:
+            _LOGGER.warning(
+                "no token registered for frame %s; it will not be able to "
+                "download photos",
+                session.frame_id,
+            )
+            return
+
+        await session.send(
+            {
+                "type": "claim",
+                "registration": {
+                    "claimed": True,
+                    "display_name": session.device_name,
+                    "frame_token": token,
+                },
+            }
+        )
 
     @staticmethod
     def _session_from_first_message(

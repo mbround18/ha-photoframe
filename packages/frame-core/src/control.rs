@@ -33,6 +33,14 @@ pub struct ControllerRegistration {
     pub claimed: bool,
     pub display_name: Option<String>,
     pub message: Option<String>,
+    /// The token this frame presents when downloading photos.
+    ///
+    /// Minted by Home Assistant, never chosen by the frame, and the only
+    /// credential the frame holds besides the Wi-Fi password (Principle II).
+    /// Without it every photo request is refused, so a frame that has not been
+    /// told its token can connect and still show nothing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub frame_token: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -301,7 +309,8 @@ mod tests {
                 "registration": {
                     "claimed": true,
                     "display_name": "Kitchen Frame",
-                    "message": "Claimed in Home Assistant"
+                    "message": "Claimed in Home Assistant",
+                    "frame_token": "tok-abc123"
                 }
             }"#,
         )
@@ -313,6 +322,7 @@ mod tests {
                 claimed: true,
                 display_name: Some("Kitchen Frame".to_string()),
                 message: Some("Claimed in Home Assistant".to_string()),
+                frame_token: Some("tok-abc123".to_string()),
             })
         );
     }

@@ -54,6 +54,17 @@ class PhotoFrameTokenRegistry:
     def frame_for(self, token: str) -> str | None:
         return self._tokens.get(token)
 
+    def token_for(self, frame_id: str) -> str | None:
+        """The token a frame should present, so it can be told what it is.
+
+        The frame cannot invent this and cannot download a single photo without
+        it, so the controller has to hand it over when the frame connects.
+        """
+        for token, owner in self._tokens.items():
+            if owner == frame_id:
+                return token
+        return None
+
     def __len__(self) -> int:
         return len(self._tokens)
 

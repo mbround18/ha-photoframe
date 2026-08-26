@@ -5,6 +5,7 @@ use frame_core::{
 };
 use frame_ui::{RenderedImage, clear_rendered_image, push_rendered_image, set_controller_phase};
 use std::net::TcpStream;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, TryRecvError};
 use std::thread::{self, JoinHandle};
@@ -256,6 +257,30 @@ pub fn local_photos_active() -> bool {
     LOCAL_PHOTOS_ACTIVE.load(Ordering::Relaxed)
 }
 
+/// The token this frame presents when downloading photos.
+///
+/// Issued by Home Assistant in the claim and held only in memory: it is
+/// re-sent on every connection, so there is nothing to persist and nothing
+/// left behind on a frame that is reset or re-gifted (Principle II).
+static FRAME_TOKEN: Mutex<Option<String>> = Mutex::new(None);
+
+pub fn set_frame_token(token: String) {
+    match FRAME_TOKEN.lock() {
+        Ok(mut slot) => {
+            let changed = slot.as_deref() != Some(token.as_str());
+            *slot = Some(token);
+            if changed {
+                tracing::info!(target: "frame_firmware", "received photo download token");
+            }
+        }
+        Err(_) => tracing::warn!(target: "frame_firmware", "frame token lock poisoned"),
+    }
+}
+
+pub fn frame_token() -> Option<String> {
+    FRAME_TOKEN.lock().ok().and_then(|slot| slot.clone())
+}
+
 impl RenderExecutor for MediaRenderExecutor {
     fn render(&mut self, request: &RenderRequest) -> anyhow::Result<()> {
         if local_photos_active() {
@@ -324,13 +349,35 @@ impl RenderExecutor for MediaRenderExecutor {
 
 pub struct WebSocketControlPlaneTransport {
     endpoint: String,
+    /// Who we are, sent as the first frame on every connection.
+    ///
+    /// Home Assistant identifies a frame from the first message it receives and
+    /// closes the socket if it cannot. Announcing once at startup is not
+    /// enough: every reconnect is a fresh socket that has to introduce itself
+    /// again, and any other message reaching the controller first -- a health
+    /// report, say -- gets the connection dropped.
+    device_id: String,
+    device_name: String,
 }
 
 impl WebSocketControlPlaneTransport {
-    pub fn new(endpoint: impl Into<String>) -> Self {
+    pub fn new(endpoint: impl Into<String>, device_id: impl Into<String>) -> Self {
         Self {
             endpoint: endpoint.into(),
+            device_id: device_id.into(),
+            // A frame that has never been adopted has no name yet, and must
+            // still be able to introduce itself -- otherwise it can never be
+            // claimed, and being unnamed becomes permanent.
+            device_name: "Photo Frame".to_string(),
         }
+    }
+
+    /// Use the name Home Assistant gave this frame, once it has one.
+    pub fn with_device_name(mut self, device_name: Option<String>) -> Self {
+        if let Some(name) = device_name.filter(|n| !n.is_empty()) {
+            self.device_name = name;
+        }
+        self
     }
 }
 
@@ -372,7 +419,20 @@ impl ControlPlaneTransport for WebSocketControlPlaneTransport {
         let (socket, _) = tungstenite::client(request, stream)
             .with_context(|| format!("failed to complete WebSocket handshake with {endpoint}"))?;
 
-        Ok(WebSocketControlPlaneConnection { socket })
+        let mut connection = WebSocketControlPlaneConnection { socket };
+
+        // Introduce ourselves before anything else can be sent. Home Assistant
+        // identifies the frame from the first message on the socket and closes
+        // the connection if it cannot, so this has to happen here rather than
+        // being queued behind whatever else is waiting to go out.
+        connection
+            .send_status(&OutboundStatusMessage::Connected {
+                device_id: self.device_id.clone(),
+                device_name: self.device_name.clone(),
+            })
+            .context("failed to introduce this frame to the controller")?;
+
+        Ok(connection)
     }
 
     fn label(&self) -> &'static str {
@@ -463,8 +523,11 @@ impl ControlPlaneConnection for NoopControlPlaneConnection {
 
 #[cfg(not(target_os = "espidf"))]
 fn download_media(url: &str) -> anyhow::Result<Vec<u8>> {
-    let response = BlockingHttpClient::new()
-        .get(url)
+    let mut request = BlockingHttpClient::new().get(url);
+    if let Some(token) = frame_token() {
+        request = request.header("Authorization", format!("Bearer {token}"));
+    }
+    let response = request
         .send()
         .with_context(|| format!("failed to issue GET request to {url}"))?;
     let status = response.status();
@@ -488,8 +551,15 @@ fn download_media(url: &str) -> anyhow::Result<Vec<u8>> {
     let connection = EspHttpConnection::new(&http_config)
         .with_context(|| format!("failed to build HTTP client for {url}"))?;
     let mut client = EmbeddedHttpClient::wrap(connection);
+    // The controller refuses photo requests that do not carry the frame's
+    // token, so an unclaimed frame downloads nothing at all.
+    let authorization = frame_token().map(|token| format!("Bearer {token}"));
+    let headers: Vec<(&str, &str)> = match authorization.as_deref() {
+        Some(value) => vec![("Authorization", value)],
+        None => Vec::new(),
+    };
     let request = client
-        .request(Method::Get, url, &[])
+        .request(Method::Get, url, &headers)
         .with_context(|| format!("failed to open media request to {url}"))?;
     let mut response = request
         .submit()
@@ -547,6 +617,11 @@ fn run_control_plane_loop<T>(
                     match connection.read_message(MESSAGE_POLL_INTERVAL) {
                         Ok(Some(payload)) => match parse_control_message(&payload) {
                             Ok(ControlEvent::Registration(registration)) => {
+                                // Every photo request carries this; without it
+                                // the controller refuses all of them.
+                                if let Some(token) = registration.frame_token.clone() {
+                                    set_frame_token(token);
+                                }
                                 let phase = if registration.claimed {
                                     ControllerPhase::Connected
                                 } else {

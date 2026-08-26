@@ -71,7 +71,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     runtime = _runtime(hass)
 
     if not runtime.views_registered:
-        hass.http.register_view(FrameControlView(runtime.server))
+        hass.http.register_view(FrameControlView(runtime.server, runtime.tokens))
         hass.http.register_view(PreparedPhotoView(runtime.store, runtime.tokens))
         runtime.views_registered = True
         _LOGGER.debug("registered control and photo endpoints")

@@ -364,7 +364,11 @@ fn run() -> anyhow::Result<()> {
     // continuing to show whatever it already has (FR-026).
     let controller_url = control_plane_url();
     let thin_client_runtime = runtime::ThinClientRuntime::spawn(
-        runtime::WebSocketControlPlaneTransport::new(controller_url),
+        runtime::WebSocketControlPlaneTransport::new(
+            controller_url,
+            app_state.device_id.clone().unwrap_or_default(),
+        )
+        .with_device_name(app_state.device_name.clone()),
         runtime::MediaRenderExecutor,
     );
 
@@ -372,20 +376,10 @@ fn run() -> anyhow::Result<()> {
     frame_ui::set_controller_phase(app_state.controller_phase.clone())?;
     ui.sync(&app_state)?;
 
-    if let (Some(device_id), Some(device_name)) =
-        (app_state.device_id.clone(), app_state.device_name.clone())
-    {
-        // Announce ourselves so the controller can associate this connection
-        // with a frame. The full claim handshake lands in T072.
-        if let Err(error) =
-            thin_client_runtime.send_status(frame_core::OutboundStatusMessage::Connected {
-                device_id,
-                device_name,
-            })
-        {
-            tracing::warn!(target: "frame_firmware", "could not announce to controller: {error}");
-        }
-    }
+    // The transport introduces this frame on every connection, reconnects
+    // included, so there is deliberately no one-shot announce here. Doing it
+    // once from this thread meant an unadopted frame -- which has no name yet
+    // -- never announced at all, and could therefore never be adopted.
 
     tracing::info!(
         target: "frame_firmware",
