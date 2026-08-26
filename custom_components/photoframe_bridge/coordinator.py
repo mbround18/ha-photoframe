@@ -295,7 +295,9 @@ class FrameCoordinator:
                 "> Network."
             )
             return None
-        return f"{base.rstrip('/')}{photo_path(photo_id)}"
+        # Raw pixels: the frame does no image work at all, which removed
+        # both the slowest step on the device and a class of crash.
+        return f"{base.rstrip('/')}{photo_path(photo_id, raw=True)}"
 
     async def async_show(self, ref: PhotoRef) -> bool:
         photo_id = await self.async_prepare(ref)

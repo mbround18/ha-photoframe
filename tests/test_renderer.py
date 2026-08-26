@@ -17,6 +17,7 @@ from custom_components.photoframe_bridge.renderer import (
     Treatment,
     UnsupportedImageError,
     prepare_image,
+    to_rgb565,
 )
 
 PANEL = (1280, 800)
@@ -70,7 +71,7 @@ def test_landscape_photo_is_cropped_to_fill() -> None:
 def test_portrait_photo_is_letterboxed_not_cropped() -> None:
     """FR-022: cropping a portrait onto a landscape panel cuts through faces."""
     prepared = prepare_image(encode(solid(800, 1280)), PANEL)
-    assert prepared.treatment is Treatment.LETTERBOX_BLUR
+    assert prepared.treatment is Treatment.LETTERBOX_BLACK
 
 
 def test_letterbox_preserves_the_whole_subject() -> None:
@@ -195,3 +196,50 @@ class TestSupportedFormats:
     def test_a_file_that_is_not_an_image_at_all_is_refused(self) -> None:
         with pytest.raises(UnsupportedImageError):
             prepare_image(b"this is not an image", (1280, 800))
+
+
+class TestBlackLetterbox:
+    """The gap around a photo is black, matching what the frame does itself.
+
+    One photo should not look different depending on whether it arrived from
+    Home Assistant or was copied onto the SD card.
+    """
+
+    def test_the_bars_beside_a_portrait_photo_are_black(self) -> None:
+        prepared = prepare_image(encode(solid(800, 1280)), PANEL)
+        with Image.open(io.BytesIO(prepared.data)) as out:
+            pixels = out.convert("RGB")
+            mid_y = PANEL[1] // 2
+            assert pixels.getpixel((2, mid_y)) == (0, 0, 0)
+            assert pixels.getpixel((PANEL[0] - 3, mid_y)) == (0, 0, 0)
+            # ...and the photo itself is still in the middle.
+            assert pixels.getpixel((PANEL[0] // 2, mid_y)) != (0, 0, 0)
+
+    def test_a_cropped_photo_has_no_black_at_all(self) -> None:
+        prepared = prepare_image(encode(solid(1600, 1000)), PANEL)
+        with Image.open(io.BytesIO(prepared.data)) as out:
+            assert out.convert("RGB").getextrema()[0][0] > 0
+
+
+class TestRgb565:
+    """Pre-decoded pixels, so the frame does no image work at all."""
+
+    def test_output_is_exactly_two_bytes_per_pixel(self) -> None:
+        prepared = prepare_image(encode(solid(1600, 1000)), PANEL)
+        raw = to_rgb565(prepared.data)
+        assert len(raw) == PANEL[0] * PANEL[1] * 2
+
+    def test_pixels_are_little_endian_rgb565(self) -> None:
+        """The ESP32-P4 reads these without swapping, so byte order matters."""
+        buffer = io.BytesIO()
+        Image.new("RGB", PANEL, (255, 0, 0)).save(buffer, format="JPEG", quality=100)
+        raw = to_rgb565(buffer.getvalue())
+        # Pure red is 0xF800; little-endian puts the low byte first.
+        assert raw[0] == 0x00
+        assert raw[1] == 0xF8
+
+    def test_black_stays_black_through_the_conversion(self) -> None:
+        """Letterbox bars must not pick up a tint on the way to the panel."""
+        prepared = prepare_image(encode(solid(800, 1280)), PANEL)
+        raw = to_rgb565(prepared.data)
+        assert raw[0] == 0x00 and raw[1] == 0x00

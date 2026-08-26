@@ -52,6 +52,27 @@ impl RenderedImage {
         Self::new(width, height, rgb565)
     }
 
+    /// Build from raw little-endian RGB565, exactly as the panel consumes it.
+    ///
+    /// This is the normal path: Home Assistant sends pixels already in the
+    /// panel's format, so the frame copies them and does no image work at all.
+    pub fn from_rgb565_bytes(bytes: &[u8]) -> Result<Self> {
+        let width = crate::PANEL_LOGICAL_WIDTH;
+        let height = crate::PANEL_LOGICAL_HEIGHT;
+        let expected = width * height * 2;
+        ensure!(
+            bytes.len() == expected,
+            "pixel data is {} bytes, expected {expected} for {width}x{height}",
+            bytes.len(),
+        );
+
+        let rgb565 = bytes
+            .chunks_exact(2)
+            .map(|px| u16::from_le_bytes([px[0], px[1]]))
+            .collect();
+        Self::new(width as u32, height as u32, rgb565)
+    }
+
     pub fn width(&self) -> u32 {
         self.width
     }
@@ -171,4 +192,39 @@ pub fn rendered_image_snapshot() -> Result<RenderedImageSnapshot> {
         generation: guard.generation,
         buffered: guard.buffer.len(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const PIXELS: usize = crate::PANEL_LOGICAL_WIDTH * crate::PANEL_LOGICAL_HEIGHT;
+
+    #[test]
+    fn raw_pixels_are_read_little_endian() {
+        // Pure red is 0xF800, sent low byte first.
+        let bytes: Vec<u8> = std::iter::repeat([0x00, 0xF8])
+            .take(PIXELS)
+            .flatten()
+            .collect();
+        let image = RenderedImage::from_rgb565_bytes(&bytes).unwrap();
+
+        assert_eq!(image.width(), crate::PANEL_LOGICAL_WIDTH as u32);
+        assert_eq!(image.height(), crate::PANEL_LOGICAL_HEIGHT as u32);
+        assert!(image.rgb565().iter().all(|&px| px == 0xF800));
+    }
+
+    #[test]
+    fn a_truncated_download_is_rejected_rather_than_shown() {
+        // Half a photo would otherwise be blitted as garbage.
+        let bytes = vec![0u8; PIXELS];
+        assert!(RenderedImage::from_rgb565_bytes(&bytes).is_err());
+    }
+
+    #[test]
+    fn black_survives_the_round_trip() {
+        let bytes = vec![0u8; PIXELS * 2];
+        let image = RenderedImage::from_rgb565_bytes(&bytes).unwrap();
+        assert!(image.rgb565().iter().all(|&px| px == 0));
+    }
 }

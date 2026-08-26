@@ -21,6 +21,7 @@ from homeassistant.components.http import HomeAssistantView
 from homeassistant.core import HomeAssistant
 
 from .const import DOMAIN
+from .renderer import RGB565_CONTENT_TYPE, to_rgb565
 from .photo_store import PhotoStore
 
 _LOGGER = logging.getLogger(__name__)
@@ -28,9 +29,14 @@ _LOGGER = logging.getLogger(__name__)
 PHOTO_URL_BASE = f"/api/{DOMAIN}/photo"
 
 
-def photo_path(photo_id: str) -> str:
+#: Asks for pre-decoded pixels rather than a JPEG.
+RAW_QUERY = "format=rgb565"
+
+
+def photo_path(photo_id: str, *, raw: bool = False) -> str:
     """The path a frame is told to fetch. Always relative to Home Assistant."""
-    return f"{PHOTO_URL_BASE}/{photo_id}"
+    path = f"{PHOTO_URL_BASE}/{photo_id}"
+    return f"{path}?{RAW_QUERY}" if raw else path
 
 
 class PhotoFrameTokenRegistry:
@@ -100,6 +106,20 @@ class PreparedPhotoView(HomeAssistantView):
             # than retrying, so this must be distinguishable from a transient
             # failure.
             return web.Response(status=404, text="unknown photo")
+
+        if request.query.get("format") == "rgb565":
+            # Converted here rather than stored: what sits on disk stays a small
+            # JPEG, and the frame gets pixels it can put straight on the panel
+            # without decoding anything.
+            raw = await hass.async_add_executor_job(to_rgb565, data)
+            _LOGGER.debug(
+                "served %s to frame %s as %d bytes of RGB565", photo_id, frame_id, len(raw)
+            )
+            return web.Response(
+                body=raw,
+                content_type=RGB565_CONTENT_TYPE,
+                headers={"Cache-Control": "public, max-age=31536000, immutable"},
+            )
 
         _LOGGER.debug("served %s (%d bytes) to frame %s", photo_id, len(data), frame_id)
         return web.Response(

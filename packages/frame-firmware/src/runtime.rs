@@ -302,6 +302,17 @@ pub fn local_photos_active() -> bool {
     LOCAL_PHOTOS_ACTIVE.load(Ordering::Relaxed)
 }
 
+/// Whether a response is raw panel pixels rather than an encoded image.
+///
+/// Home Assistant asks for these by query parameter, so the URL it handed us
+/// already says which it is. The length check is belt and braces: raw pixels
+/// are always exactly two bytes per pixel for the whole panel, and anything
+/// else would be a truncated download better rejected than blitted.
+fn is_raw_pixels(url: &str, len: usize) -> bool {
+    url.contains("format=rgb565")
+        && len == frame_ui::PANEL_LOGICAL_WIDTH * frame_ui::PANEL_LOGICAL_HEIGHT * 2
+}
+
 /// The token this frame presents when downloading photos.
 ///
 /// Issued by Home Assistant in the claim and held only in memory: it is
@@ -349,18 +360,27 @@ impl RenderExecutor for MediaRenderExecutor {
 
         let bytes = download_media(&request.media_url)
             .with_context(|| format!("failed to download media from {}", request.media_url))?;
-        // Home Assistant already sized and encoded this for our exact panel, so
-        // decoding is the only work left here (T033 moves it onto the P4's
-        // hardware JPEG decoder).
-        let decoded = image::load_from_memory(&bytes)
-            .with_context(|| format!("failed to decode media from {}", request.media_url))?
-            .into_rgb8();
-        let (width, height) = decoded.dimensions();
 
-        // Queue rather than replace: the frame keeps a few decoded photos ready
-        // so a transition never waits on a download or a decode (FR-024).
-        push_rendered_image(RenderedImage::from_rgb8(width, height, decoded.as_raw())?)
-            .context("failed to publish rendered image to the UI")?;
+        // Home Assistant sends pixels in the panel's own format, so the normal
+        // path does no image work at all: no decode, none of its cost on a
+        // 400 MHz core, and none of its stack. JPEG is still accepted so an
+        // older controller, or anything else pointing us at an image, keeps
+        // working.
+        let image = if is_raw_pixels(&request.media_url, bytes.len()) {
+            RenderedImage::from_rgb565_bytes(&bytes)
+                .with_context(|| format!("malformed pixel data from {}", request.media_url))?
+        } else {
+            let decoded = image::load_from_memory(&bytes)
+                .with_context(|| format!("failed to decode media from {}", request.media_url))?
+                .into_rgb8();
+            let (width, height) = decoded.dimensions();
+            RenderedImage::from_rgb8(width, height, decoded.as_raw())?
+        };
+        let (width, height) = (image.width(), image.height());
+
+        // Queue rather than replace: the frame keeps a few photos ready so a
+        // transition never waits on a download (FR-024).
+        push_rendered_image(image).context("failed to publish rendered image to the UI")?;
 
         tracing::info!(
             target: "frame_firmware",
