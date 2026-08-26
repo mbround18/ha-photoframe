@@ -88,3 +88,35 @@ async def test_walking_down_reaches_the_album(hass=None) -> None:
 
     assert [c.title for c in level.children] == ["Taiwan 2026"]
     assert level.can_select is True
+
+
+@pytest.mark.asyncio
+async def test_only_jpg_jpeg_and_png_are_taken_from_a_source_that_sets_no_media_class() -> None:
+    """Matches what the frame's own decoder is built with.
+
+    A format the frame cannot read would work over the network and fail from
+    the SD card, so the two have to agree.
+    """
+    mixed = "media-source://s3_media/mixed/"
+    tree = {
+        mixed: _Node(mixed, "mixed", True, [
+            _Node(f"{mixed}a.jpg", "a.jpg", False),
+            _Node(f"{mixed}b.JPEG", "b.JPEG", False),
+            _Node(f"{mixed}c.png", "c.png", False),
+            _Node(f"{mixed}d.gif", "d.gif", False),
+            _Node(f"{mixed}e.webp", "e.webp", False),
+            _Node(f"{mixed}f.bmp", "f.bmp", False),
+            _Node(f"{mixed}g.heic", "g.heic", False),
+            _Node(f"{mixed}h.mp4", "h.mp4", False),
+        ]),
+    }
+
+    async def browse(hass, identifier):  # noqa: ARG001
+        return tree[identifier]
+
+    selection = Selection(source_id="media_source", collection_ids=(mixed,))
+    with patch(_BROWSE, side_effect=browse):
+        provider = MediaSourceProvider(hass=object())
+        found = [ref.item_id.rsplit("/", 1)[-1] async for ref in provider.async_list_items(selection)]
+
+    assert found == ["a.jpg", "b.JPEG", "c.png"]

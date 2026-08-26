@@ -76,9 +76,14 @@ MAX_ITEMS = 20_000
 
 ROOT = "media-source://"
 
-#: Recognised by name when a media source does not classify its files. Kept in
-#: step with what the frame can actually decode.
-_PHOTO_SUFFIXES = (".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp")
+#: Recognised by name when a media source does not classify its files.
+#:
+#: Deliberately just these three. They are what the frame's own decoder is
+#: built with and what the note on its SD card promises, so accepting more here
+#: would put photos in the pool that Home Assistant can prepare and the frame
+#: can never show from the card. Animated formats are a poor fit for a photo
+#: frame regardless: it shows one still for minutes at a time.
+_PHOTO_SUFFIXES = (".jpg", ".jpeg", ".png")
 
 
 def _is_photo(child) -> bool:

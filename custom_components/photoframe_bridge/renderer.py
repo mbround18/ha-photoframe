@@ -59,6 +59,14 @@ class PreparedImage:
     treatment: Treatment
 
 
+#: Formats a photo may arrive in, as Pillow names them.
+#:
+#: Kept in step with the frame's own decoder (JPEG and PNG) so a photo that
+#: Home Assistant accepts is one the frame could also read straight off its SD
+#: card.
+SUPPORTED_FORMATS: frozenset[str] = frozenset({"JPEG", "PNG"})
+
+
 class UnsupportedImageError(Exception):
     """The bytes are not an image we can display.
 
@@ -79,6 +87,15 @@ def prepare_image(data: bytes, geometry: tuple[int, int]) -> PreparedImage:
 
     try:
         with Image.open(io.BytesIO(data)) as source:
+            # The filename is a hint, not a promise. Pillow reads far more than
+            # the frame does, so a GIF or a WebP that slipped through by name
+            # would prepare here and be undisplayable from the SD card, where
+            # the frame decodes for itself.
+            if source.format not in SUPPORTED_FORMATS:
+                raise UnsupportedImageError(
+                    f"{source.format or 'unrecognised'} is not a supported photo "
+                    f"format; use {' or '.join(sorted(SUPPORTED_FORMATS))}"
+                )
             # Apply the camera's rotation before anything measures the image,
             # or a portrait photo gets treated as landscape (FR-020).
             oriented = ImageOps.exif_transpose(source)

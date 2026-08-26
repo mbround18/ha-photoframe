@@ -160,3 +160,38 @@ def test_pipeline_version_is_exposed_for_cache_invalidation() -> None:
     """photo_id embeds this, so a pipeline change must invalidate renders."""
     assert isinstance(PIPELINE_VERSION, int)
     assert PIPELINE_VERSION >= 1
+
+
+class TestSupportedFormats:
+    """Only JPEG and PNG, matching what the frame itself can decode.
+
+    Pillow reads far more than the frame does. Accepting a format here that the
+    frame cannot read would work over the network and fail from the SD card,
+    where the frame decodes for itself -- a difference nobody would connect to
+    the file they copied across.
+    """
+
+    @staticmethod
+    def _encode(fmt: str, size=(1600, 1000)) -> bytes:
+        buffer = io.BytesIO()
+        Image.new("RGB", size, (120, 90, 60)).save(buffer, format=fmt)
+        return buffer.getvalue()
+
+    @pytest.mark.parametrize("fmt", ["JPEG", "PNG"])
+    def test_supported_formats_are_prepared(self, fmt: str) -> None:
+        prepared = prepare_image(self._encode(fmt), (1280, 800))
+        assert prepared.data
+        with Image.open(io.BytesIO(prepared.data)) as out:
+            assert out.format == "JPEG"
+            assert out.size == (1280, 800)
+
+    @pytest.mark.parametrize("fmt", ["GIF", "BMP", "WEBP"])
+    def test_everything_else_is_refused(self, fmt: str) -> None:
+        with pytest.raises(UnsupportedImageError) as err:
+            prepare_image(self._encode(fmt), (1280, 800))
+        # The message has to name the way out, not just the refusal.
+        assert "JPEG" in str(err.value) and "PNG" in str(err.value)
+
+    def test_a_file_that_is_not_an_image_at_all_is_refused(self) -> None:
+        with pytest.raises(UnsupportedImageError):
+            prepare_image(b"this is not an image", (1280, 800))
