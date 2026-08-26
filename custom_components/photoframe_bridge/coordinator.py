@@ -102,6 +102,12 @@ class FrameCoordinator:
         self.current_photo_id: str | None = None
         self.last_error: str | None = None
         self._unsub_timer = None
+        #: Whether the pool currently holds the bundled photos rather than the
+        #: owner's. Temporary by design -- see `async_refresh_pool`.
+        self.using_fallback = False
+        #: Providers by source id, so a photo is always fetched by whoever
+        #: produced it even while a fallback is standing in.
+        self._providers = {provider.key: provider}
 
     # -- lifecycle --------------------------------------------------------
 
@@ -123,12 +129,41 @@ class FrameCoordinator:
         )
 
     async def _on_tick(self, _now) -> None:
+        if self.using_fallback:
+            # Cheap, and the only thing that makes the fallback temporary.
+            await self.async_refresh_pool()
         await self.async_show_next()
 
     # -- pool -------------------------------------------------------------
 
+    def _provider_for(self, ref: PhotoRef):
+        """Whoever produced this photo, not whoever is configured.
+
+        While the bundled photos are standing in, the pool holds refs from two
+        different sources and fetching them from the wrong one fails.
+        """
+        return self._providers.get(ref.source_id, self.provider)
+
+    async def _async_fallback_provider(self):
+        from .const import FALLBACK_SOURCE
+        from .providers import available_providers
+
+        provider = self._providers.get(FALLBACK_SOURCE)
+        if provider is None:
+            provider = available_providers()[FALLBACK_SOURCE]()
+            self._providers[FALLBACK_SOURCE] = provider
+        return provider
+
     async def async_refresh_pool(self) -> None:
-        """Re-resolve the selection into a concrete list of photos."""
+        """Re-resolve the selection into a concrete list of photos.
+
+        Retried on every rotation tick, which is what makes the bundled-photo
+        fallback temporary. A photo source is not always ready when this
+        integration starts -- another integration may still be setting up, or a
+        NAS may be asleep -- and falling back permanently meant the owner saw
+        stock photos until they restarted Home Assistant, with their own album
+        correctly configured the whole time.
+        """
         items: list[PhotoRef] = []
         seen: set[tuple[str, str]] = set()
         try:
@@ -146,10 +181,54 @@ class FrameCoordinator:
             _LOGGER.warning("photo source unavailable for %s: %s", self.frame_id, err)
             return
 
-        self.pool.items = items
+        if items:
+            if self.using_fallback:
+                _LOGGER.info(
+                    "frame %s: %r is providing photos again; the bundled photos "
+                    "are no longer being shown",
+                    self.frame_id,
+                    self.selection.source_id,
+                )
+            self.using_fallback = False
+            self.pool.items = items
+            self.pool.reshuffle()
+            self.last_error = None
+            _LOGGER.info("frame %s pool refreshed: %d photos", self.frame_id, len(items))
+            return
+
+        # Nothing from the configured source. Show the bundled photos rather
+        # than a blank panel, but keep the real selection and try it again next
+        # tick.
+        from .const import FALLBACK_SOURCE
+
+        if self.selection.source_id == FALLBACK_SOURCE:
+            self.pool.items = []
+            return
+
+        fallback = await self._async_fallback_provider()
+        stand_in = [
+            ref
+            async for ref in fallback.async_list_items(
+                Selection(
+                    source_id=FALLBACK_SOURCE,
+                    collection_ids=tuple(
+                        c.collection_id for c in await fallback.async_list_collections()
+                    ),
+                )
+            )
+        ]
+        if not self.using_fallback:
+            _LOGGER.warning(
+                "frame %s: %r returned no photos (selection: %s). Showing the bundled "
+                "photos meanwhile and retrying every rotation. Last error: %s",
+                self.frame_id,
+                self.selection.source_id,
+                ", ".join(self.selection.collection_ids) or "everything",
+                self.last_error or "none recorded",
+            )
+        self.using_fallback = True
+        self.pool.items = stand_in
         self.pool.reshuffle()
-        self.last_error = None
-        _LOGGER.info("frame %s pool refreshed: %d photos", self.frame_id, len(items))
 
     # -- delivery ---------------------------------------------------------
 
@@ -173,7 +252,7 @@ class FrameCoordinator:
 
         try:
             # Ask for twice the panel so crops stay sharp.
-            raw = await self.provider.async_fetch_bytes(
+            raw = await self._provider_for(ref).async_fetch_bytes(
                 ref, want=(geometry[0] * 2, geometry[1] * 2)
             )
         except (ItemUnavailable, ItemUnsupported) as err:

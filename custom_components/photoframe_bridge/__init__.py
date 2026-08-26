@@ -126,25 +126,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
     await coordinator.async_start()
 
-    # A frame adopted before its source is configured, or pointed at an album
-    # that turns out to be empty, would otherwise sit blank. Show the bundled
-    # photos instead so it always looks like a working photo frame, and say so
-    # in the log rather than silently substituting.
-    if not coordinator.pool.items and provider_key != FALLBACK_SOURCE:
-        _LOGGER.info(
-            "photo source %r resolved to no photos for frame %s; showing the bundled "
-            "sample photos until an album is chosen",
-            provider_key,
-            frame_id,
-        )
-        coordinator.provider = providers[FALLBACK_SOURCE]()
-        coordinator.selection = Selection(
-            source_id=FALLBACK_SOURCE,
-            collection_ids=tuple(
-                c.collection_id for c in await coordinator.provider.async_list_collections()
-            ),
-        )
-        await coordinator.async_refresh_pool()
+    # The bundled photos stand in whenever the configured source yields
+    # nothing, and the coordinator keeps retrying the real one on every
+    # rotation. Doing it here instead meant a source that was merely slow to
+    # start -- another integration still setting up, a NAS still waking --
+    # became stock photos until Home Assistant was restarted.
+
     runtime.coordinators[frame_id] = coordinator
 
     # Get a photo onto the frame as soon as it is reachable.
