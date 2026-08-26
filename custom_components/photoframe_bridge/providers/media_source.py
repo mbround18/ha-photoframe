@@ -42,11 +42,27 @@ from . import (
 
 _LOGGER = logging.getLogger(__name__)
 
+# Home Assistant raises BrowseError from `media_player.errors`, not from
+# `media_source`, and Unresolvable from `media_source.error`. Both are imported
+# by name here rather than reached through the `media_source` module: writing
+# `except media_source.BrowseError` looks fine and is not -- the attribute does
+# not exist, so evaluating the except clause raises AttributeError, which
+# escapes past every handler below it and surfaces as a 500 from the options
+# flow. That is exactly how this went wrong, and it only showed up when a
+# browse actually failed.
 try:  # import shape differs across Home Assistant versions
-    from homeassistant.components.media_source.error import Unresolvable as Unresolvable_
+    from homeassistant.components.media_player.errors import BrowseError
 except ImportError:  # pragma: no cover
 
-    class Unresolvable_(Exception):
+    class BrowseError(Exception):
+        """Fallback when Home Assistant does not expose BrowseError."""
+
+
+try:  # import shape differs across Home Assistant versions
+    from homeassistant.components.media_source.error import Unresolvable
+except ImportError:  # pragma: no cover
+
+    class Unresolvable(Exception):
         """Fallback when Home Assistant does not expose Unresolvable."""
 
 
@@ -86,7 +102,7 @@ class MediaSourceProvider(PhotoProvider):
         hass = self._require_hass()
         try:
             return await media_source.async_browse_media(hass, identifier)
-        except (media_source.BrowseError, Unresolvable_) as err:
+        except (BrowseError, Unresolvable) as err:
             raise SourceUnavailable(f"could not browse {identifier}: {err}") from err
         except Exception as err:  # never let a bare error cross the seam
             raise SourceUnavailable(f"could not browse {identifier}: {err}") from err
