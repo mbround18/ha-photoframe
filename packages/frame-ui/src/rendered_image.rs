@@ -126,6 +126,27 @@ fn state() -> &'static Mutex<State> {
 ///
 /// The oldest queued photo is dropped once the buffer is full, so a controller
 /// that pushes faster than the frame advances cannot grow memory without bound.
+/// Show this photo now, keeping any spares queued behind it.
+///
+/// This is what a rotation is: the controller decides it is time for the next
+/// picture. Spares already held are kept, so a tap straight afterwards still
+/// has something ready.
+pub fn show_rendered_image(image: RenderedImage) -> Result<()> {
+    let mut guard = state()
+        .lock()
+        .map_err(|_| anyhow::anyhow!("rendered image state poisoned"))?;
+
+    if guard.buffer.len() >= BUFFER_CAPACITY {
+        // Drop a spare, never the picture being replaced -- that one is about
+        // to go anyway.
+        guard.buffer.pop_back();
+    }
+    guard.buffer.push_front(image);
+    guard.generation = guard.generation.wrapping_add(1);
+    Ok(())
+}
+
+/// Hold a photo in reserve, behind whatever is on screen.
 pub fn push_rendered_image(image: RenderedImage) -> Result<()> {
     let mut guard = state()
         .lock()
@@ -199,6 +220,83 @@ mod tests {
     use super::*;
 
     const PIXELS: usize = crate::PANEL_LOGICAL_WIDTH * crate::PANEL_LOGICAL_HEIGHT;
+
+    /// The photo store is global, so tests that touch it must not overlap.
+    /// Held for the body of each such test rather than relying on
+    /// `--test-threads=1`, which nothing in the build passes.
+    static EXCLUSIVE: Mutex<()> = Mutex::new(());
+
+    fn exclusive() -> std::sync::MutexGuard<'static, ()> {
+        // A test that panicked while holding this must not fail every other
+        // test after it; the state is reset at the start of each one anyway.
+        EXCLUSIVE.lock().unwrap_or_else(|err| err.into_inner())
+    }
+
+    fn solid(value: u16) -> RenderedImage {
+        RenderedImage::new(
+            crate::PANEL_LOGICAL_WIDTH as u32,
+            crate::PANEL_LOGICAL_HEIGHT as u32,
+            vec![value; PIXELS],
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn showing_a_photo_replaces_what_is_on_screen_and_keeps_spares() {
+        let _guard = exclusive();
+        clear_rendered_image().unwrap();
+        show_rendered_image(solid(0x1111)).unwrap();
+        push_rendered_image(solid(0x2222)).unwrap();
+        show_rendered_image(solid(0x3333)).unwrap();
+
+        let snapshot = rendered_image_snapshot().unwrap();
+        // The new photo is on screen...
+        assert_eq!(snapshot.image.unwrap().rgb565()[0], 0x3333);
+        // ...and the spare is still waiting behind it, so a tap has something.
+        assert_eq!(snapshot.buffered, 3);
+    }
+
+    #[test]
+    fn queueing_a_spare_does_not_change_what_is_on_screen() {
+        let _guard = exclusive();
+        clear_rendered_image().unwrap();
+        show_rendered_image(solid(0x1111)).unwrap();
+        let before = rendered_image_snapshot().unwrap().generation;
+
+        push_rendered_image(solid(0x2222)).unwrap();
+
+        let after = rendered_image_snapshot().unwrap();
+        assert_eq!(after.image.unwrap().rgb565()[0], 0x1111);
+        // Generation drives the redraw; queueing must not force one.
+        assert_eq!(after.generation, before);
+    }
+
+    #[test]
+    fn a_tap_moves_to_the_spare() {
+        let _guard = exclusive();
+        clear_rendered_image().unwrap();
+        show_rendered_image(solid(0x1111)).unwrap();
+        push_rendered_image(solid(0x2222)).unwrap();
+
+        assert!(advance_rendered_image().unwrap());
+        assert_eq!(
+            rendered_image_snapshot().unwrap().image.unwrap().rgb565()[0],
+            0x2222
+        );
+    }
+
+    #[test]
+    fn a_tap_with_nothing_in_reserve_is_a_harmless_no_op() {
+        let _guard = exclusive();
+        clear_rendered_image().unwrap();
+        show_rendered_image(solid(0x1111)).unwrap();
+
+        assert!(!advance_rendered_image().unwrap());
+        assert_eq!(
+            rendered_image_snapshot().unwrap().image.unwrap().rgb565()[0],
+            0x1111
+        );
+    }
 
     #[test]
     fn raw_pixels_are_read_little_endian() {

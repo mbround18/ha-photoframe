@@ -3,7 +3,10 @@ use frame_core::{
     AppState, ControlEvent, ControllerPhase, DeviceCommand, OutboundStatusMessage, RenderRequest,
     ScreenStatus, parse_control_message,
 };
-use frame_ui::{RenderedImage, clear_rendered_image, push_rendered_image, set_controller_phase};
+use frame_ui::{
+    RenderedImage, clear_rendered_image, push_rendered_image, set_controller_phase,
+    show_rendered_image,
+};
 use std::net::TcpStream;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -378,9 +381,15 @@ impl RenderExecutor for MediaRenderExecutor {
         };
         let (width, height) = (image.width(), image.height());
 
-        // Queue rather than replace: the frame keeps a few photos ready so a
-        // transition never waits on a download (FR-024).
-        push_rendered_image(image).context("failed to publish rendered image to the UI")?;
+        // A spare waits its turn; anything else is the controller saying it is
+        // time for the next picture. Getting this the wrong way round meant
+        // every photo queued behind the first one and the frame never changed
+        // what it was showing.
+        if request.queue {
+            push_rendered_image(image).context("failed to queue rendered image")?;
+        } else {
+            show_rendered_image(image).context("failed to publish rendered image to the UI")?;
+        }
 
         tracing::info!(
             target: "frame_firmware",

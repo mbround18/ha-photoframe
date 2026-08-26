@@ -38,6 +38,13 @@ from .renderer import UnsupportedImageError, prepare_image
 
 _LOGGER = logging.getLogger(__name__)
 
+#: How many photos to keep on the frame, counting the one on screen.
+#:
+#: Matches the frame's own buffer capacity. Sending one at a time left it
+#: holding only the picture being looked at, so tapping it did nothing until a
+#: fresh photo had been prepared and fetched.
+FRAME_BUFFER_TARGET = 3
+
 
 @dataclass(slots=True)
 class PhotoPool:
@@ -332,6 +339,7 @@ class FrameCoordinator:
             if ref is None:
                 return False
             if await self.async_show(ref):
+                await self._async_top_up()
                 return True
 
         # Say why. Without the reason this warning is unactionable: a source
@@ -348,6 +356,43 @@ class FrameCoordinator:
             "" if connected else " (the frame is not currently connected)",
         )
         return False
+
+    async def _async_top_up(self) -> None:
+        """Send spare photos so the frame always has one ready to show.
+
+        Sending one photo at a time left the frame holding exactly the picture
+        on screen and nothing else, so tapping it did nothing until a fresh one
+        had been prepared and fetched -- which reads as a frozen frame rather
+        than as waiting.
+
+        The frame queues what it is sent, so filling its buffer is just sending
+        more. Cheap, too: a spare is usually already prepared and cached, and
+        the frame drops the oldest if it somehow gets more than it can hold.
+        """
+        session = self.server.session(self.frame_id)
+        if session is None or not session.connected:
+            return
+
+        for _ in range(max(0, FRAME_BUFFER_TARGET - 1)):
+            ref = self.pool.advance()
+            if ref is None:
+                return
+            photo_id = await self.async_prepare(ref)
+            if photo_id is None:
+                continue
+            url = self._absolute_photo_url(photo_id)
+            if url is None:
+                return
+            # Deliberately does not touch current_photo_id: this photo is
+            # queued behind what is on screen, not being shown.
+            await self.server.send_render(
+                self.frame_id,
+                url,
+                transition_type=self.entry.options.get(CONF_TRANSITION, DEFAULT_TRANSITION),
+                brightness=self.entry.options.get(CONF_BRIGHTNESS, DEFAULT_BRIGHTNESS),
+                correlation_id=photo_id,
+                queue=True,
+            )
 
     async def async_show_previous(self) -> bool:
         ref = self.pool.previous()

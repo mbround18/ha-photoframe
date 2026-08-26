@@ -125,13 +125,21 @@ class ControlServer:
         transition_type: str | None = None,
         brightness: int | None = None,
         correlation_id: str | None = None,
+        queue: bool = False,
     ) -> bool:
+        """Send one photo to a frame.
+
+        `queue` holds it in reserve instead of showing it, so a tap on the
+        frame has something ready and never waits on a download.
+        """
         session = self._sessions.get(frame_id)
         if session is None:
             _LOGGER.warning("no session for frame %s", frame_id)
             return False
 
         payload: dict[str, Any] = {"media_url": media_url}
+        if queue:
+            payload["queue"] = True
         if transition_type is not None:
             payload["transition_type"] = transition_type
         if brightness is not None:

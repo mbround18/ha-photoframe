@@ -26,6 +26,10 @@ pub struct IncomingControlMessage {
     pub correlation_id: Option<String>,
     pub cmd: Option<DeviceCommand>,
     pub registration: Option<ControllerRegistration>,
+    /// Defaults to showing the photo, so a controller too old to send this
+    /// keeps behaving exactly as it did.
+    #[serde(default)]
+    pub queue: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -54,6 +58,12 @@ pub struct RenderRequest {
     pub media_url: String,
     pub correlation_id: Option<String>,
     pub presentation: RenderPresentation,
+    /// Hold this one in reserve rather than showing it.
+    ///
+    /// The controller sends spares so a tap has something ready and never
+    /// waits on a download. Without this every photo would be "show now" and
+    /// a spare would silently replace the picture someone is looking at.
+    pub queue: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -201,6 +211,7 @@ pub fn validate_control_message(
             Ok(ControlEvent::Render(RenderRequest {
                 media_url: trimmed_media_url.to_string(),
                 correlation_id: message.correlation_id,
+                queue: message.queue,
                 presentation: RenderPresentation {
                     transition_type: message.transition_type,
                     brightness: message.brightness,
@@ -253,6 +264,9 @@ mod tests {
             ControlEvent::Render(super::RenderRequest {
                 media_url: "https://example.com/photo.jpg".to_string(),
                 correlation_id: Some("abc123".to_string()),
+                // A controller that says nothing means "show it", so an older
+                // one keeps behaving exactly as it did.
+                queue: false,
                 presentation: super::RenderPresentation {
                     transition_type: Some(TransitionType::Fade),
                     brightness: Some(64),
@@ -287,6 +301,7 @@ mod tests {
             transition_type: Some(TransitionType::Cut),
             brightness: None,
             correlation_id: None,
+            queue: false,
             cmd: Some(DeviceCommand::Reboot),
             registration: None,
         })
