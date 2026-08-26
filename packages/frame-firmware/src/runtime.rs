@@ -404,6 +404,7 @@ impl RenderExecutor for MediaRenderExecutor {
         // 400 MHz core, and none of its stack. JPEG is still accepted so an
         // older controller, or anything else pointing us at an image, keeps
         // working.
+        let photo_id = request.correlation_id.clone().unwrap_or_default();
         let image = if is_raw_pixels(&request.media_url, bytes.len()) {
             RenderedImage::from_rgb565_bytes(&bytes)
                 .with_context(|| format!("malformed pixel data from {}", request.media_url))?
@@ -414,6 +415,7 @@ impl RenderExecutor for MediaRenderExecutor {
             let (width, height) = decoded.dimensions();
             RenderedImage::from_rgb8(width, height, decoded.as_raw())?
         };
+        let image = image.with_id(photo_id.clone());
         let (width, height) = (image.width(), image.height());
 
         // A spare waits its turn; anything else is the controller saying it is
@@ -427,8 +429,7 @@ impl RenderExecutor for MediaRenderExecutor {
             // Named by Home Assistant's content hash, so the same photo is
             // never written twice and a reboot cannot overwrite what is
             // already cached.
-            let photo_id = request.correlation_id.as_deref().unwrap_or_default();
-            match crate::photo_cache::store(photo_id, &bytes) {
+            match crate::photo_cache::store(&photo_id, &bytes) {
                 Ok(()) => {}
                 Err(error) => {
                     // Falling back to memory means the photo is still shown;

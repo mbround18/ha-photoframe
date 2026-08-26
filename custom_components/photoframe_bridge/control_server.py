@@ -26,6 +26,9 @@ from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
+#: How many recently sent photos to remember per connection.
+SENT_HISTORY = 64
+
 WS_URL = f"/api/{DOMAIN}/ws"
 
 # A frame that connects and then says nothing is not a frame.
@@ -47,6 +50,23 @@ class FrameSession:
     photo_source: str | None = None
     #: How many photos the frame has on its SD card.
     cached_photos: int | None = None
+    #: Photos already sent on this connection, newest last.
+    #:
+    #: Three separate things ask for photos -- the rotation, topping up the
+    #: frame's memory, and filling its card -- and each advances the same pool.
+    #: Without this they cheerfully sent the same photo several times, costing
+    #: two megabytes a go and making the panel redraw a picture it was already
+    #: showing.
+    sent_photo_ids: list[str] = field(default_factory=list)
+
+    def already_sent(self, photo_id: str) -> bool:
+        return photo_id in self.sent_photo_ids
+
+    def record_sent(self, photo_id: str) -> None:
+        self.sent_photo_ids.append(photo_id)
+        # Bounded: a frame holds tens of photos, not hundreds, and one it was
+        # sent long ago is fair game again.
+        del self.sent_photo_ids[:-SENT_HISTORY]
     #: Whether this connection has been sent a photo yet.
     #:
     #: Per-connection, not per-frame: a frame that reboots comes back with an
@@ -143,6 +163,16 @@ class ControlServer:
         if session is None:
             _LOGGER.warning("no session for frame %s", frame_id)
             return False
+
+        if correlation_id is not None:
+            if session.already_sent(correlation_id):
+                _LOGGER.debug(
+                    "not sending %s to %s again; it already has it",
+                    correlation_id,
+                    frame_id,
+                )
+                return False
+            session.record_sent(correlation_id)
 
         payload: dict[str, Any] = {"media_url": media_url}
         if queue:

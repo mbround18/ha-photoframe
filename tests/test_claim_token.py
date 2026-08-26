@@ -132,3 +132,51 @@ async def test_unsubscribing_stops_the_callbacks() -> None:
     server.handle_status(FRAME_ID, {"type": "photo_requested"})
 
     assert asked == []
+
+
+@pytest.mark.asyncio
+async def test_the_same_photo_is_not_sent_twice_to_one_frame() -> None:
+    """Three things ask for photos and each advances the same pool.
+
+    Left alone they sent the same photo several times: two megabytes a go, and
+    the panel redrawing a picture it was already showing, which looks like an
+    unexplained flash.
+    """
+    server = ControlServer()
+    socket = _Socket()
+    server.register(_session(socket))
+
+    first = await server.send_render(FRAME_ID, "http://x/1", correlation_id="aa11")
+    again = await server.send_render(FRAME_ID, "http://x/1", correlation_id="aa11")
+    other = await server.send_render(FRAME_ID, "http://x/2", correlation_id="bb22")
+
+    assert first is True
+    assert again is False
+    assert other is True
+    assert [m["media_url"] for m in socket.sent] == ["http://x/1", "http://x/2"]
+
+
+@pytest.mark.asyncio
+async def test_a_reconnected_frame_may_be_sent_the_same_photos_again() -> None:
+    """A frame that rebooted holds nothing, whatever it was sent before."""
+    server = ControlServer()
+    server.register(_session(_Socket()))
+    await server.send_render(FRAME_ID, "http://x/1", correlation_id="aa11")
+
+    fresh = _Socket()
+    server.register(_session(fresh))
+    assert await server.send_render(FRAME_ID, "http://x/1", correlation_id="aa11") is True
+    assert len(fresh.sent) == 1
+
+
+@pytest.mark.asyncio
+async def test_the_sent_history_does_not_grow_without_bound() -> None:
+    from custom_components.photoframe_bridge.control_server import SENT_HISTORY
+
+    session = _session(_Socket())
+    for n in range(SENT_HISTORY * 3):
+        session.record_sent(f"photo{n}")
+
+    assert len(session.sent_photo_ids) == SENT_HISTORY
+    # The most recent are the ones worth remembering.
+    assert session.already_sent(f"photo{SENT_HISTORY * 3 - 1}")

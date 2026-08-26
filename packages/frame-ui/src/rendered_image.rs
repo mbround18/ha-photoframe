@@ -13,6 +13,13 @@ pub struct RenderedImage {
     width: u32,
     height: u32,
     rgb565: Vec<u16>,
+    /// What the controller calls this photo, when it said.
+    ///
+    /// Only used to recognise a photo we are already showing. Presenting one
+    /// costs a full rotate and a two-megabyte transfer to the panel, which is
+    /// visible as a flash -- so doing that to arrive at the picture already on
+    /// screen is worse than doing nothing.
+    id: Option<String>,
 }
 
 impl RenderedImage {
@@ -27,6 +34,7 @@ impl RenderedImage {
             width,
             height,
             rgb565,
+            id: None,
         })
     }
 
@@ -71,6 +79,17 @@ impl RenderedImage {
             .map(|px| u16::from_le_bytes([px[0], px[1]]))
             .collect();
         Self::new(width as u32, height as u32, rgb565)
+    }
+
+    /// Tag this photo with the controller's id for it.
+    pub fn with_id(mut self, id: impl Into<String>) -> Self {
+        let id = id.into();
+        self.id = (!id.is_empty()).then_some(id);
+        self
+    }
+
+    pub fn id(&self) -> Option<&str> {
+        self.id.as_deref()
     }
 
     pub fn width(&self) -> u32 {
@@ -135,6 +154,16 @@ pub fn show_rendered_image(image: RenderedImage) -> Result<()> {
     let mut guard = state()
         .lock()
         .map_err(|_| anyhow::anyhow!("rendered image state poisoned"))?;
+
+    // Already up. Redrawing it would rotate and blit two megabytes to arrive
+    // exactly where we are, which reads as an unexplained flash.
+    if let (Some(incoming), Some(showing)) = (
+        image.id(),
+        guard.buffer.front().and_then(|current| current.id()),
+    ) && incoming == showing
+    {
+        return Ok(());
+    }
 
     if guard.buffer.len() >= BUFFER_CAPACITY {
         // Drop a spare, never the picture being replaced -- that one is about
@@ -239,6 +268,50 @@ mod tests {
             vec![value; PIXELS],
         )
         .unwrap()
+    }
+
+    #[test]
+    fn showing_the_photo_already_on_screen_does_not_redraw_it() {
+        let _guard = exclusive();
+        clear_rendered_image().unwrap();
+        show_rendered_image(solid(0x1111).with_id("aa11")).unwrap();
+        let before = rendered_image_snapshot().unwrap().generation;
+
+        show_rendered_image(solid(0x1111).with_id("aa11")).unwrap();
+
+        // Generation drives the redraw, and a redraw is a full rotate plus a
+        // two-megabyte transfer -- visible as a flash for no reason.
+        let after = rendered_image_snapshot().unwrap();
+        assert_eq!(after.generation, before);
+        assert_eq!(after.buffered, 1);
+    }
+
+    #[test]
+    fn a_different_photo_still_replaces_what_is_on_screen() {
+        let _guard = exclusive();
+        clear_rendered_image().unwrap();
+        show_rendered_image(solid(0x1111).with_id("aa11")).unwrap();
+        let before = rendered_image_snapshot().unwrap().generation;
+
+        show_rendered_image(solid(0x2222).with_id("bb22")).unwrap();
+
+        let after = rendered_image_snapshot().unwrap();
+        assert_ne!(after.generation, before);
+        assert_eq!(after.image.unwrap().rgb565()[0], 0x2222);
+    }
+
+    #[test]
+    fn an_untagged_photo_is_always_shown() {
+        // A controller too old to say which photo this is gets the old
+        // behaviour rather than being silently ignored.
+        let _guard = exclusive();
+        clear_rendered_image().unwrap();
+        show_rendered_image(solid(0x1111)).unwrap();
+        let before = rendered_image_snapshot().unwrap().generation;
+
+        show_rendered_image(solid(0x1111)).unwrap();
+
+        assert_ne!(rendered_image_snapshot().unwrap().generation, before);
     }
 
     #[test]
