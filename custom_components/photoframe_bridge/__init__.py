@@ -159,8 +159,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         session = runtime.server.session(frame_id)
         if session is None or not session.connected:
             return
-        if coordinator.current_photo_id is not None:
+        # Keyed to the connection rather than to whether we have ever sent this
+        # frame a photo. A frame that reboots loses everything it was holding,
+        # so "we already sent one" was true and useless -- it left the panel on
+        # "Waiting for photos" until the next rotation tick, up to five minutes
+        # after every restart.
+        if session.photo_pushed:
             return
+        session.photo_pushed = True
         entry.async_create_background_task(
             hass, coordinator.async_show_next(), f"{DOMAIN}_first_photo_{frame_id}"
         )

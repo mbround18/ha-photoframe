@@ -80,3 +80,14 @@ async def test_a_frame_with_no_token_is_not_sent_a_useless_claim() -> None:
     view = FrameControlView(ControlServer(), PhotoFrameTokenRegistry())
     await view._async_claim(_session(socket))
     assert socket.sent == []
+
+
+def test_a_fresh_connection_has_not_been_sent_a_photo() -> None:
+    """A frame that reboots comes back with an empty buffer.
+
+    The push guard used to be "have we ever sent this frame a photo", which
+    stayed true across a reboot and left the panel on "Waiting for photos"
+    until the next rotation tick.
+    """
+    session = FrameSession(frame_id=FRAME_ID, device_name="Living Room Frame")
+    assert session.photo_pushed is False

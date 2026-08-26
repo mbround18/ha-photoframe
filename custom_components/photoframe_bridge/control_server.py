@@ -45,6 +45,11 @@ class FrameSession:
     storage: str | None = None
     buffered_photos: int | None = None
     photo_source: str | None = None
+    #: Whether this connection has been sent a photo yet.
+    #:
+    #: Per-connection, not per-frame: a frame that reboots comes back with an
+    #: empty buffer and needs a photo again, however many it was sent before.
+    photo_pushed: bool = False
     _socket: web.WebSocketResponse | None = field(default=None, repr=False)
 
     @property
