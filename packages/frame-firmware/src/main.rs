@@ -11,6 +11,7 @@ use esp_idf_svc::nvs::EspDefaultNvsPartition;
 #[cfg(target_os = "espidf")]
 mod runtime;
 
+mod photo_cache;
 #[cfg(target_os = "espidf")]
 mod sd_card;
 mod touch;
@@ -31,6 +32,26 @@ unsafe extern "C" {
 /// How often the frame reports its health. Slow on purpose: nothing here
 /// changes quickly, and the frame's job is showing photos, not chattering.
 const HEALTH_REPORT_INTERVAL_SECS: u64 = 60;
+
+/// How many photos to ask for at a time.
+///
+/// Small on purpose. Each one is two megabytes for Home Assistant to prepare
+/// and send, and the cache is a reserve rather than something anyone is
+/// waiting on.
+const PHOTO_REQUEST_BATCH: usize = 4;
+
+/// How long to wait between asking for more.
+///
+/// With the batch above this fills an empty card in a few minutes, quietly, in
+/// the background. A tap that empties the buffer still gets an immediate
+/// request -- this only paces the topping up.
+const PHOTO_REQUEST_COOLDOWN: std::time::Duration = std::time::Duration::from_secs(20);
+
+/// How often the frame changes photo on its own when the controller is away.
+///
+/// Matches the default rotation interval, so an outage is not visible as a
+/// change of pace -- the pictures simply keep changing.
+const OFFLINE_ROTATION_INTERVAL: std::time::Duration = std::time::Duration::from_secs(300);
 
 const DEFAULT_CONTROL_PLANE_URL: &str = "ws://homeassistant.local:8123/api/photoframe_bridge/ws";
 
@@ -456,6 +477,7 @@ fn run() -> anyhow::Result<()> {
                 let buffered = frame_ui::rendered_image_snapshot()
                     .map(|snapshot| snapshot.buffered.min(u8::MAX as usize) as u8)
                     .ok();
+                request_more_photos(&health_runtime);
                 let health = frame_core::DeviceHealth {
                     cpu_temp_millidegrees: None,
                     screen_status: None,
@@ -475,6 +497,46 @@ fn run() -> anyhow::Result<()> {
         });
     }
 
+    // Ask the controller to refill the card, not just to send one photo. The
+    // card is the reserve that keeps the frame working with no network at all,
+    // so it is worth filling well ahead of needing it.
+    fn request_more_photos(sender: &runtime::StatusSender) {
+        use std::sync::Mutex;
+        use std::time::Instant;
+
+        runtime::top_up_from_cache();
+
+        let outstanding = photo_cache::wanted();
+        if outstanding == 0 {
+            return;
+        }
+
+        // Asking for the whole cache at once would have Home Assistant prepare
+        // dozens of photos before it does anything else. A few at a time fills
+        // the card within a few minutes of a cold start and is never something
+        // the owner would notice happening.
+        static LAST_REQUEST: Mutex<Option<Instant>> = Mutex::new(None);
+        let Ok(mut last) = LAST_REQUEST.lock() else {
+            return;
+        };
+        if last.is_some_and(|when| when.elapsed() < PHOTO_REQUEST_COOLDOWN) {
+            return;
+        }
+        *last = Some(Instant::now());
+
+        let asking = outstanding.min(PHOTO_REQUEST_BATCH);
+        tracing::debug!(
+            target: "frame_firmware",
+            asking,
+            cached = photo_cache::count(),
+            "asking the controller for more photos"
+        );
+        let _ = sender.send_status(frame_core::OutboundStatusMessage::PhotoRequested {
+            wanted: asking as u16,
+            cached: photo_cache::count().min(u16::MAX as usize) as u16,
+        });
+    }
+
     // Tap the picture for the next one. The only interaction an adopted frame
     // has, and nothing on screen advertises it (Principle VIII).
     //
@@ -489,8 +551,7 @@ fn run() -> anyhow::Result<()> {
                     if !more_ready {
                         // Down to the photo on screen: ask for another so the
                         // next tap has something to show.
-                        let _ = tap_runtime
-                            .send_status(frame_core::OutboundStatusMessage::PhotoRequested);
+                        request_more_photos(&tap_runtime);
                     }
                 }
                 Err(error) => {
@@ -505,8 +566,40 @@ fn run() -> anyhow::Result<()> {
     // The panel only changes when the state behind it changes, so this loop is
     // a cheap reconcile rather than a render loop. Photos arrive on the
     // control-plane thread and land here through the rendered-image store.
+    //
+    // It also rotates the frame itself when Home Assistant is not there to do
+    // it. Normally the controller decides when the picture changes; if it has
+    // gone away, the photos on the card are what keeps the frame being a photo
+    // frame rather than a picture of one photo (Principle VII).
+    let mut last_offline_rotation = std::time::Instant::now();
     loop {
         ui.sync(&app_state)?;
+
+        let controller_connected = frame_ui::controller_state_snapshot()
+            .map(|snapshot| snapshot.phase == frame_core::ControllerPhase::Connected)
+            .unwrap_or(false);
+
+        if !controller_connected && last_offline_rotation.elapsed() >= OFFLINE_ROTATION_INTERVAL {
+            last_offline_rotation = std::time::Instant::now();
+            runtime::top_up_from_cache();
+            match frame_ui::advance_rendered_image() {
+                Ok(true) => {
+                    runtime::top_up_from_cache();
+                    tracing::info!(
+                        target: "frame_firmware",
+                        cached = photo_cache::count(),
+                        "rotated from the SD cache while the controller is away"
+                    );
+                }
+                // Nothing in reserve: keep showing what is up rather than
+                // blanking, and try again next time round.
+                Ok(false) => {}
+                Err(error) => {
+                    tracing::warn!(target: "frame_firmware", "could not rotate: {error}");
+                }
+            }
+        }
+
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
 }

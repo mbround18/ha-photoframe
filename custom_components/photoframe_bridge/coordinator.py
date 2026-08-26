@@ -45,6 +45,13 @@ _LOGGER = logging.getLogger(__name__)
 #: fresh photo had been prepared and fetched.
 FRAME_BUFFER_TARGET = 3
 
+#: Most photos prepared for one request from a frame.
+#:
+#: A frame with an empty card asks for dozens. Preparing them all in one go
+#: would tie up Home Assistant for as long as that takes, and the frame will
+#: ask again anyway.
+MAX_PHOTOS_PER_REQUEST = 8
+
 
 @dataclass(slots=True)
 class PhotoPool:
@@ -356,6 +363,49 @@ class FrameCoordinator:
             "" if connected else " (the frame is not currently connected)",
         )
         return False
+
+    async def async_fill_frame_cache(self, wanted: int) -> int:
+        """Send a batch of photos for the frame to keep on its SD card.
+
+        The frame asks for as many as would fill its cache, so this sends a
+        batch rather than one photo per request. Those photos are what let it
+        keep working with no network at all, so it is worth preparing them well
+        before they are needed.
+
+        Bounded per request so a frame asking for fifty photos cannot occupy
+        Home Assistant preparing them all at once; it will ask again.
+        """
+        if not self.pool.items:
+            return 0
+
+        session = self.server.session(self.frame_id)
+        if session is None or not session.connected:
+            return 0
+
+        sent = 0
+        for _ in range(min(max(wanted, 0), MAX_PHOTOS_PER_REQUEST)):
+            ref = self.pool.advance()
+            if ref is None:
+                break
+            photo_id = await self.async_prepare(ref)
+            if photo_id is None:
+                continue
+            url = self._absolute_photo_url(photo_id)
+            if url is None:
+                break
+            if await self.server.send_render(
+                self.frame_id,
+                url,
+                transition_type=self.entry.options.get(CONF_TRANSITION, DEFAULT_TRANSITION),
+                brightness=self.entry.options.get(CONF_BRIGHTNESS, DEFAULT_BRIGHTNESS),
+                correlation_id=photo_id,
+                queue=True,
+            ):
+                sent += 1
+
+        if sent:
+            _LOGGER.debug("sent %d photo(s) to fill %s's cache", sent, self.frame_id)
+        return sent
 
     async def _async_top_up(self) -> None:
         """Send spare photos so the frame always has one ready to show.

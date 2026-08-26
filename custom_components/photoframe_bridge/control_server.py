@@ -45,6 +45,8 @@ class FrameSession:
     storage: str | None = None
     buffered_photos: int | None = None
     photo_source: str | None = None
+    #: How many photos the frame has on its SD card.
+    cached_photos: int | None = None
     #: Whether this connection has been sent a photo yet.
     #:
     #: Per-connection, not per-frame: a frame that reboots comes back with an
@@ -76,7 +78,7 @@ class ControlServer:
         self._listeners: list[Callable[[str], None]] = []
         #: Called when a frame asks for another photo, e.g. because someone
         #: tapped the screen faster than the rotation timer supplies them.
-        self._photo_requested: list[Callable[[str], None]] = []
+        self._photo_requested: list[Callable[[str, int], None]] = []
 
     # -- session registry -------------------------------------------------
 
@@ -97,9 +99,14 @@ class ControlServer:
         return _remove
 
     def add_photo_request_listener(
-        self, callback: Callable[[str], None]
+        self, callback: Callable[[str, int], None]
     ) -> Callable[[], None]:
-        """Register interest in a frame asking for its next photo."""
+        """Register interest in a frame asking for more photos.
+
+        The callback receives the frame id and how many photos it wants, so a
+        frame with an empty SD cache can be filled in one go rather than one
+        photo per request.
+        """
         self._photo_requested.append(callback)
 
         def unsubscribe() -> None:
@@ -182,10 +189,12 @@ class ControlServer:
             if isinstance(photo_source, str):
                 session.photo_source = photo_source
         elif kind == "photo_requested":
-            # Someone tapped the picture. Advisory: if nothing is listening,
-            # the frame simply keeps showing what it already holds.
+            # The frame is asking us to refill its cache. Advisory: if nothing
+            # is listening it simply keeps showing what it already holds.
+            wanted = message.get("wanted")
+            session.cached_photos = message.get("cached")
             for callback in list(self._photo_requested):
-                callback(frame_id)
+                callback(frame_id, wanted if isinstance(wanted, int) else 1)
         elif kind == "hello":
             panel = message.get("panel") or {}
             width, height = panel.get("width"), panel.get("height")

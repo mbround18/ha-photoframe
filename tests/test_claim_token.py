@@ -100,11 +100,16 @@ async def test_a_tap_on_the_frame_asks_for_the_next_photo() -> None:
     session = _session(_Socket())
     server.register(session)
 
-    asked: list[str] = []
-    server.add_photo_request_listener(asked.append)
-    server.handle_status(FRAME_ID, {"type": "photo_requested"})
+    asked: list[tuple[str, int]] = []
+    server.add_photo_request_listener(lambda fid, wanted: asked.append((fid, wanted)))
+    server.handle_status(
+        FRAME_ID, {"type": "photo_requested", "wanted": 12, "cached": 3}
+    )
 
-    assert asked == [FRAME_ID]
+    # How many it wants, so an empty card is filled in one batch rather than
+    # one photo per round trip.
+    assert asked == [(FRAME_ID, 12)]
+    assert server.session(FRAME_ID).cached_photos == 3
 
 
 @pytest.mark.asyncio
@@ -120,7 +125,9 @@ async def test_unsubscribing_stops_the_callbacks() -> None:
     server = ControlServer()
     server.register(_session(_Socket()))
     asked: list[str] = []
-    unsubscribe = server.add_photo_request_listener(asked.append)
+    unsubscribe = server.add_photo_request_listener(
+        lambda fid, wanted: asked.append(fid)  # noqa: ARG005
+    )
     unsubscribe()
     server.handle_status(FRAME_ID, {"type": "photo_requested"})
 

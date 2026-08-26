@@ -305,6 +305,41 @@ pub fn local_photos_active() -> bool {
     LOCAL_PHOTOS_ACTIVE.load(Ordering::Relaxed)
 }
 
+/// Move photos from the card into memory until a tap has something to show.
+///
+/// Kept shallow deliberately: each photo in memory is 2 MB of PSRAM, and the
+/// card is where depth belongs.
+#[cfg(target_os = "espidf")]
+pub fn top_up_from_cache() {
+    while frame_ui::rendered_image_snapshot()
+        .map(|snapshot| snapshot.buffered)
+        .unwrap_or(usize::MAX)
+        < MEMORY_BUFFER_TARGET
+    {
+        let Some(pixels) = crate::photo_cache::take_oldest() else {
+            return;
+        };
+        match RenderedImage::from_rgb565_bytes(&pixels) {
+            Ok(image) => {
+                if push_rendered_image(image).is_err() {
+                    return;
+                }
+            }
+            // The cache discards the bad file itself; just move on.
+            Err(error) => tracing::warn!(target: "frame_firmware", "bad cached photo: {error}"),
+        }
+    }
+}
+
+#[cfg(not(target_os = "espidf"))]
+pub fn top_up_from_cache() {}
+
+/// How many photos to hold in memory, counting the one on screen.
+///
+/// Two is enough for a tap to be instant. Depth lives on the card, where it
+/// costs nothing; in PSRAM it costs 2 MB a photo.
+const MEMORY_BUFFER_TARGET: usize = 2;
+
 /// Whether a response is raw panel pixels rather than an encoded image.
 ///
 /// Home Assistant asks for these by query parameter, so the URL it handed us
@@ -386,7 +421,24 @@ impl RenderExecutor for MediaRenderExecutor {
         // every photo queued behind the first one and the frame never changed
         // what it was showing.
         if request.queue {
-            push_rendered_image(image).context("failed to queue rendered image")?;
+            // Spares go to the card, not into memory. Memory holds only the
+            // next couple of photos; the card holds enough to keep the frame
+            // going through an outage, which is the whole point of it.
+            // Named by Home Assistant's content hash, so the same photo is
+            // never written twice and a reboot cannot overwrite what is
+            // already cached.
+            let photo_id = request.correlation_id.as_deref().unwrap_or_default();
+            match crate::photo_cache::store(photo_id, &bytes) {
+                Ok(()) => {}
+                Err(error) => {
+                    // Falling back to memory means the photo is still shown;
+                    // it just will not survive a reboot.
+                    tracing::warn!(target: "frame_firmware", "could not cache photo: {error}");
+                    push_rendered_image(image).context("failed to queue rendered image")?;
+                }
+            }
+            // Keep memory shallow but never empty, so a tap right now works.
+            top_up_from_cache();
         } else {
             show_rendered_image(image).context("failed to publish rendered image to the UI")?;
         }

@@ -132,12 +132,16 @@ pub enum OutboundStatusMessage {
         correlation_id: Option<String>,
     },
     Health(DeviceHealth),
-    /// The frame is out of photos to show and would like another.
+    /// The frame would like more photos than it currently holds.
     ///
-    /// Sent when someone taps for the next photo faster than the rotation
-    /// timer would have supplied one. Advisory: the controller may ignore it,
-    /// and the frame keeps showing what it holds either way.
-    PhotoRequested,
+    /// `wanted` is how many would fill its cache, so the controller can send a
+    /// batch rather than trickle one photo per request. Advisory: the
+    /// controller may send fewer or none, and the frame keeps showing what it
+    /// has either way.
+    PhotoRequested {
+        wanted: u16,
+        cached: u16,
+    },
     Error {
         message: String,
         correlation_id: Option<String>,
