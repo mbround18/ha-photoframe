@@ -162,7 +162,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if changed_frame_id == frame_id:
             _push_first_photo()
 
+    def _on_photo_requested(requesting_frame_id: str) -> None:
+        if requesting_frame_id != frame_id:
+            return
+        entry.async_create_background_task(
+            hass, coordinator.async_show_next(), f"{DOMAIN}_tap_{frame_id}"
+        )
+
     entry.async_on_unload(runtime.server.add_listener(_on_frame_event))
+    entry.async_on_unload(
+        runtime.server.add_photo_request_listener(_on_photo_requested)
+    )
     # Covers the frame that was already connected before we got here.
     _push_first_photo()
     entry.async_on_unload(entry.add_update_listener(_async_reload_entry))

@@ -18,3 +18,5 @@
  * then jumps to address zero. */
 #include "bsp/display.h"
 #include "bsp/esp32_p4_function_ev_board.h"
+#include "bsp/touch.h"
+#include "esp_lcd_touch.h"

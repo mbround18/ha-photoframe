@@ -13,6 +13,7 @@ mod runtime;
 
 #[cfg(target_os = "espidf")]
 mod sd_card;
+mod touch;
 
 #[cfg(target_os = "espidf")]
 mod setup_state_store;
@@ -470,6 +471,31 @@ fn run() -> anyhow::Result<()> {
                     tracing::debug!(target: "frame_firmware", "health report not sent: {error}");
                 }
                 std::thread::sleep(std::time::Duration::from_secs(HEALTH_REPORT_INTERVAL_SECS));
+            }
+        });
+    }
+
+    // Tap the picture for the next one. The only interaction an adopted frame
+    // has, and nothing on screen advertises it (Principle VIII).
+    //
+    // Advancing means showing the next photo already decoded and waiting, so a
+    // tap is instant. When the buffer is running dry we also ask Home
+    // Assistant for more, which is the same request the rotation timer makes.
+    {
+        let tap_runtime = thin_client_runtime.status_sender();
+        touch::start(move || {
+            match frame_ui::advance_rendered_image() {
+                Ok(more_ready) => {
+                    if !more_ready {
+                        // Down to the photo on screen: ask for another so the
+                        // next tap has something to show.
+                        let _ = tap_runtime
+                            .send_status(frame_core::OutboundStatusMessage::PhotoRequested);
+                    }
+                }
+                Err(error) => {
+                    tracing::warn!(target: "frame_firmware", "could not advance photo: {error}");
+                }
             }
         });
     }

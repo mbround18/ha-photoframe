@@ -122,6 +122,12 @@ pub enum OutboundStatusMessage {
         correlation_id: Option<String>,
     },
     Health(DeviceHealth),
+    /// The frame is out of photos to show and would like another.
+    ///
+    /// Sent when someone taps for the next photo faster than the rotation
+    /// timer would have supplied one. Advisory: the controller may ignore it,
+    /// and the frame keeps showing what it holds either way.
+    PhotoRequested,
     Error {
         message: String,
         correlation_id: Option<String>,

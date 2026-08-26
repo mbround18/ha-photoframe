@@ -69,6 +69,6 @@ remote_component = { name = "espressif/esp_hosted", version = "~2.12" }
 # screen. `bindings_header` is what makes bsp_display_new() and friends callable
 # from Rust, so no C shim is needed.
 [[package.metadata.esp-idf-sys.extra_components]]
-component_dirs = ["components/vendor/esp32_p4_function_ev_board", "components/vendor/esp_lcd_jd9365"]
+component_dirs = ["components/vendor/esp32_p4_function_ev_board", "components/vendor/esp_lcd_jd9365", "components/vendor/esp_lcd_touch_gsl3680"]
 bindings_header = "bsp_bindings.h"
 

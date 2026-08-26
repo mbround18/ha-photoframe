@@ -34,7 +34,7 @@
 #include "bsp/esp32_p4_function_ev_board.h"
 #include "bsp/display.h"
 #include "bsp/touch.h"
-#include "esp_lcd_touch_gt911.h"
+#include "esp_lcd_touch_gsl3680.h"
 #include "bsp_err_check.h"
 #include "esp_codec_dev_defaults.h"
  
@@ -603,11 +603,33 @@ err:
  
 esp_err_t bsp_touch_new(const bsp_touch_config_t *config, esp_lcd_touch_handle_t *ret_touch)
 {
-    /* Touch is not built in this vendored copy: the GSL3680 driver the original
-       BSP used ships without a licence, and this firmware does not use touch. */
+    /* Restored from the vendor's own copy of this file. The GSL3680 driver it
+       needs is vendored alongside this component; see its PROVENANCE.md for
+       the licence position, which is weaker than everything else here. */
     (void)config;
-    (void)ret_touch;
-    return ESP_ERR_NOT_SUPPORTED;
+
+    BSP_ERROR_CHECK_RETURN_ERR(bsp_i2c_init());
+
+    const esp_lcd_touch_config_t tp_cfg = {
+        .x_max = BSP_LCD_H_RES,
+        .y_max = BSP_LCD_V_RES,
+        .rst_gpio_num = BSP_LCD_TOUCH_RST, // Shared with LCD reset
+        .int_gpio_num = BSP_LCD_TOUCH_INT,
+        .levels = {
+            .reset = 0,
+            .interrupt = 0,
+        },
+        .flags = {
+            .swap_xy = 0,
+            .mirror_x = 0,
+            .mirror_y = 1,
+        },
+    };
+    esp_lcd_panel_io_handle_t tp_io_handle = NULL;
+    esp_lcd_panel_io_i2c_config_t tp_io_config = ESP_LCD_TOUCH_IO_I2C_GSL3680_CONFIG();
+    tp_io_config.scl_speed_hz = CONFIG_BSP_I2C_CLK_SPEED_HZ;
+    ESP_RETURN_ON_ERROR(esp_lcd_new_panel_io_i2c(i2c_handle, &tp_io_config, &tp_io_handle), TAG, "");
+    return esp_lcd_touch_new_i2c_gsl3680(tp_io_handle, &tp_cfg, ret_touch);
 }
 
  

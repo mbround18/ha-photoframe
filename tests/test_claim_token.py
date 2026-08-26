@@ -91,3 +91,37 @@ def test_a_fresh_connection_has_not_been_sent_a_photo() -> None:
     """
     session = FrameSession(frame_id=FRAME_ID, device_name="Living Room Frame")
     assert session.photo_pushed is False
+
+
+@pytest.mark.asyncio
+async def test_a_tap_on_the_frame_asks_for_the_next_photo() -> None:
+    """Tapping advances the frame's own buffer; when it runs dry it asks us."""
+    server = ControlServer()
+    session = _session(_Socket())
+    server.register(session)
+
+    asked: list[str] = []
+    server.add_photo_request_listener(asked.append)
+    server.handle_status(FRAME_ID, {"type": "photo_requested"})
+
+    assert asked == [FRAME_ID]
+
+
+@pytest.mark.asyncio
+async def test_a_photo_request_with_nobody_listening_is_harmless() -> None:
+    """Advisory by design: the frame keeps showing what it holds regardless."""
+    server = ControlServer()
+    server.register(_session(_Socket()))
+    server.handle_status(FRAME_ID, {"type": "photo_requested"})
+
+
+@pytest.mark.asyncio
+async def test_unsubscribing_stops_the_callbacks() -> None:
+    server = ControlServer()
+    server.register(_session(_Socket()))
+    asked: list[str] = []
+    unsubscribe = server.add_photo_request_listener(asked.append)
+    unsubscribe()
+    server.handle_status(FRAME_ID, {"type": "photo_requested"})
+
+    assert asked == []

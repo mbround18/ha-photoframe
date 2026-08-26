@@ -74,6 +74,9 @@ class ControlServer:
     def __init__(self) -> None:
         self._sessions: dict[str, FrameSession] = {}
         self._listeners: list[Callable[[str], None]] = []
+        #: Called when a frame asks for another photo, e.g. because someone
+        #: tapped the screen faster than the rotation timer supplies them.
+        self._photo_requested: list[Callable[[str], None]] = []
 
     # -- session registry -------------------------------------------------
 
@@ -92,6 +95,18 @@ class ControlServer:
                 self._listeners.remove(callback)
 
         return _remove
+
+    def add_photo_request_listener(
+        self, callback: Callable[[str], None]
+    ) -> Callable[[], None]:
+        """Register interest in a frame asking for its next photo."""
+        self._photo_requested.append(callback)
+
+        def unsubscribe() -> None:
+            if callback in self._photo_requested:
+                self._photo_requested.remove(callback)
+
+        return unsubscribe
 
     def _notify(self, frame_id: str) -> None:
         for callback in list(self._listeners):
@@ -158,6 +173,11 @@ class ControlServer:
             photo_source = health.get("photo_source")
             if isinstance(photo_source, str):
                 session.photo_source = photo_source
+        elif kind == "photo_requested":
+            # Someone tapped the picture. Advisory: if nothing is listening,
+            # the frame simply keeps showing what it already holds.
+            for callback in list(self._photo_requested):
+                callback(frame_id)
         elif kind == "hello":
             panel = message.get("panel") or {}
             width, height = panel.get("width"), panel.get("height")
